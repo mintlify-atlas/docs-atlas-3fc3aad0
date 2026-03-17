@@ -1,0 +1,136 @@
+{
+  "projectType": "framework",
+  "projectName": "Miso",
+  "projectDescription": "A small, production-ready, isomorphic Haskell front-end web framework inspired by Elm and React, supporting virtual DOM, component composition, type-safe routing, and compilation to WebAssembly and JavaScript.",
+  "theme": "palm",
+  "primaryColor": "#848c8e",
+  "lightColor": "#11161e",
+  "darkColor": "#cfd0d2",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Architecture",
+            "pages": [
+              "architecture/overview",
+              "architecture/model-view-update",
+              "architecture/components",
+              "architecture/effects"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/virtual-dom",
+              "concepts/routing",
+              "concepts/subscriptions",
+              "concepts/server-side-rendering"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/http-requests",
+              "guides/websockets",
+              "guides/svg-canvas",
+              "guides/hot-reload",
+              "guides/nix",
+              "guides/native-mobile"
+            ]
+          },
+          {
+            "group": "Examples",
+            "pages": [
+              "examples/overview",
+              "examples/counter",
+              "examples/todomvc"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Core",
+            "pages": [
+              "api/miso",
+              "api/types",
+              "api/effect"
+            ]
+          },
+          {
+            "group": "HTML",
+            "pages": [
+              "api/html",
+              "api/html-elements",
+              "api/html-events",
+              "api/html-properties"
+            ]
+          },
+          {
+            "group": "Modules",
+            "pages": [
+              "api/router",
+              "api/fetch",
+              "api/subscriptions",
+              "api/svg",
+              "api/canvas",
+              "api/websocket",
+              "api/storage",
+              "api/lens",
+              "api/string",
+              "api/css"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Virtual DOM with recursive diffing and patching algorithm",
+    "Elm-inspired Model-View-Update (MVU) architecture",
+    "React-style component composition with type-safe parent-child bindings",
+    "Compilation to WebAssembly and JavaScript via GHC backends",
+    "Type-safe servant-style client-side routing",
+    "Extensible subscription-based subsystem (keyboard, mouse, history, websockets)",
+    "Isomorphic rendering with server-side rendering (SSR) and hydration support",
+    "Hot reload via WASM browser mode with ghciwatch",
+    "Built-in HTTP Fetch API integration",
+    "SVG, MathML, Canvas 2D/WebGL support",
+    "Native mobile support via LynxJS (iOS, Android, HarmonyOS)",
+    "100% test coverage on the core DOM diff engine"
+  ],
+  "publicApiSurface": [
+    "component / vcomp — smart constructor for building Components",
+    "startApp — launch a top-level App with event delegation",
+    "miso — hydrate a pre-rendered server-side page",
+    "Effect / io / io_ / sync / sync_ / batch / issue / withSink — effect scheduling",
+    "View / node / text / textRaw / textKey — virtual DOM construction",
+    "App / Component / SomeComponent — core application types",
+    "(+>) / mount_ — component mounting combinators",
+    "Miso.Html / Miso.Html.Element / Miso.Html.Property / Miso.Html.Event — HTML DSL",
+    "Miso.Router — type-safe servant-style routing",
+    "Miso.Fetch — HTTP Fetch API (getJSON, postJSON, getText, etc.)",
+    "Miso.Subscription.History / Keyboard / Mouse / Window / OnLine — subscriptions",
+    "Miso.Svg / Miso.Mathml / Miso.Canvas — graphics modules",
+    "Miso.WebSocket — WebSocket support",
+    "Miso.Storage — browser localStorage/sessionStorage",
+    "Miso.Lens — lenses and stateful operators for model updates",
+    "Miso.String / MisoString / ms / toMisoString — string utilities",
+    "Miso.CSS / Miso.CSS.Color / Miso.CSS.Types — typed CSS",
+    "Miso.PubSub — publish-subscribe for component communication",
+    "Miso.EventSource — Server-Sent Events (SSE)",
+    "Miso.Html.Render — server-side HTML rendering"
+  ]
+}
