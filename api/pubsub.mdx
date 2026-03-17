@@ -1,0 +1,129 @@
+---
+title: "Miso.PubSub"
+description: "Publish-Subscribe primitives for inter-component communication"
+---
+
+`Miso.PubSub` provides a publish-subscribe concurrency pattern for communication between `Component`s. It is re-exported from the top-level `Miso` module.
+
+```haskell
+import Miso.PubSub
+-- or implicitly via:
+import Miso
+```
+
+## Overview
+
+PubSub allows any component in the tree to subscribe to named `Topic`s and publish messages to all subscribers of those topics. Unlike the `mailbox` mechanism (which targets a specific `ComponentId`), PubSub is a broadcast mechanism — all subscribers receive every published message.
+
+## Types
+
+```haskell
+-- | An opaque topic identifier
+data Topic
+
+-- | Create a Topic from a string name
+topic :: MisoString -> Topic
+```
+
+## Functions
+
+```haskell
+-- | Subscribe to a Topic.
+-- The provided callback is called with each published value.
+subscribe
+  :: FromJSON a
+  => Topic
+  -> (a -> action)
+  -> Effect parent model action
+
+-- | Unsubscribe from a Topic.
+unsubscribe
+  :: Topic
+  -> Effect parent model action
+
+-- | Publish a value to all subscribers of a Topic.
+publish
+  :: ToJSON a
+  => Topic
+  -> a
+  -> Effect parent model action
+```
+
+## Usage
+
+### Defining a shared topic
+
+```haskell
+import Miso
+import Miso.PubSub
+
+-- Define a shared topic constant
+chatTopic :: Topic
+chatTopic = topic "chat"
+```
+
+### Publisher component
+
+```haskell
+data Action = SendMessage MisoString
+
+updateModel :: Action -> Effect parent Model Action
+updateModel = \case
+  SendMessage msg ->
+    publish chatTopic msg
+```
+
+### Subscriber component
+
+```haskell
+data Action = MessageReceived MisoString | Subscribe
+
+updateModel :: Action -> Effect parent Model Action
+updateModel = \case
+  Subscribe ->
+    subscribe chatTopic MessageReceived
+
+  MessageReceived msg ->
+    io_ $ consoleLog ("Received: " <> msg)
+```
+
+### Dynamic subscription
+
+Subscribe when the component mounts and unsubscribe when it unmounts:
+
+```haskell
+app :: App Model Action
+app = (component emptyModel updateModel viewModel)
+  { mount   = Just Subscribe
+  , unmount = Just Unsubscribe
+  , mailbox = checkMail
+  }
+
+data Action = Subscribe | Unsubscribe | GotMessage MisoString
+
+updateModel :: Action -> Effect parent Model Action
+updateModel = \case
+  Subscribe ->
+    subscribe chatTopic GotMessage
+  Unsubscribe ->
+    unsubscribe chatTopic
+  GotMessage msg ->
+    messages %= (msg :)
+```
+
+<Note>
+  PubSub messages are serialized as JSON (`ToJSON`/`FromJSON`). All subscribers receive all published messages on a topic — there is no filtering or routing by `ComponentId`.
+</Note>
+
+## Comparison with mailbox
+
+| Feature | `Miso.PubSub` | `mailbox` |
+|---------|--------------|-----------|
+| Targeting | All subscribers on a topic | A specific `ComponentId` |
+| Discovery | Named topic string | `ComponentId` from `ComponentInfo` |
+| Type safety | `ToJSON`/`FromJSON` | `Value` (raw JSON) |
+| Use case | Broadcasting events | Targeted messages |
+
+<Tip>
+  For structured communication between a parent and child component, consider the `Binding` mechanism in `Miso.Binding` instead — it provides synchronous, type-safe model synchronization without serialization.
+</Tip>

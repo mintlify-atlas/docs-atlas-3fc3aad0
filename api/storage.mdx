@@ -113,21 +113,21 @@ data Action
   | LoadState
   | StateLoaded (Either MisoString Model)
 
-updateModel :: Action -> Effect Model Action
+updateModel :: Action -> Effect parent Model Action
 updateModel = \case
   Increment -> count += 1
 
   Decrement -> count -= 1
 
   SaveState -> do
-    model <- get
+    model <- gets id
     io_ $ setLocalStorage "counter" model
 
   LoadState ->
     io $ StateLoaded <$> getLocalStorage "counter"
 
   StateLoaded (Right model) ->
-    put model
+    modify (const model)
 
   StateLoaded (Left _err) ->
     pure ()  -- key not found or decode error
@@ -136,12 +136,12 @@ updateModel = \case
 ## Persisting State on Every Update
 
 ```haskell
-updateModel :: Action -> Effect Model Action
+updateModel :: Action -> Effect parent Model Action
 updateModel action = do
   -- Run the real update
   handleAction action
   -- Persist after every change
-  model <- get
+  model <- gets id
   io_ $ setLocalStorage "my-app" model
 ```
 

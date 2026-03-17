@@ -101,6 +101,8 @@
               "api/router",
               "api/fetch",
               "api/subscriptions",
+              "api/eventsource",
+              "api/pubsub",
               "api/svg",
               "api/canvas",
               "api/websocket",

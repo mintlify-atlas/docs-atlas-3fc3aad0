@@ -153,9 +153,60 @@ touchEvents = M.fromList
   ]
 ```
 
+## Component communication
+
+The `Miso` module exports several functions for inter-component communication:
+
+```haskell
+-- | Send a JSON-encoded message to a specific component by ComponentId.
+mail :: ToJSON a => ComponentId -> a -> Effect parent model action
+
+-- | Check if the current component's mailbox has a pending message.
+-- Used in the 'mailbox' field of 'Component'.
+checkMail :: FromJSON a => Value -> Maybe a
+
+-- | Read the parent component's model state (read-only).
+parent :: Effect parent model parent
+
+-- | Send a JSON-encoded message to the parent component.
+mailParent :: ToJSON a => a -> Effect parent model action
+
+-- | Broadcast a JSON-encoded message to all components.
+broadcast :: ToJSON a => a -> Effect parent model action
+```
+
+## Dynamic subscriptions
+
+```haskell
+-- | Start a named dynamic subscription from within 'update'.
+startSub :: MisoString -> Sub action -> Effect parent model action
+
+-- | Stop a named dynamic subscription from within 'update'.
+stopSub :: MisoString -> Effect parent model action
+```
+
+Example usage:
+
+```haskell
+data Action = StartTimer | StopTimer | Tick
+
+timerSub :: Sub Action
+timerSub sink = forever $ threadDelay 1000000 >> sink Tick
+
+update :: Action -> Effect parent Model Action
+update = \case
+  StartTimer -> startSub "timer" timerSub
+  StopTimer  -> stopSub "timer"
+  Tick       -> count += 1
+```
+
 ## Re-exported modules
 
 The `Miso` module re-exports the following modules. You can import them individually if you want finer-grained control.
+
+<Note>
+  `Miso.EventSource`, `Miso.WebSocket`, `Miso.Canvas`, `Miso.Svg`, `Miso.CSS`, `Miso.Lens`, `Miso.Router`, and `Miso.Html` are **not** re-exported from `Miso`. They must be imported explicitly.
+</Note>
 
 <AccordionGroup>
   <Accordion title="Miso.Binding">
@@ -227,7 +278,7 @@ counter = component 0 update view
       Subtract -> this -= 1
 
     view :: Int -> View Int Action
-    view x = H.div_
+    view x = H.div_ []
       [ H.button_ [ HE.onClick Add,      HP.id_ "add"      ] [ "+" ]
       , text (ms x)
       , H.button_ [ HE.onClick Subtract, HP.id_ "subtract" ] [ "-" ]

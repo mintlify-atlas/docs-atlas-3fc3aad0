@@ -334,7 +334,7 @@ myStyles = sheet_
   ]
 
 -- Render the stylesheet into a <style> tag
-viewModel :: Model -> View Action
+viewModel :: Model -> View Model Action
 viewModel model =
   div_ []
     [ -- Inject stylesheet

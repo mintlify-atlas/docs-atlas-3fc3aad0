@@ -173,7 +173,7 @@ SVG elements support the same event attributes as HTML elements (`onClick_`, `on
 SVG elements can be placed anywhere in your HTML view tree:
 
 ```haskell
-viewModel :: Model -> View Action
+viewModel :: Model -> View Model Action
 viewModel model =
   div_ [ class_ "container" ]
     [ h1_ [] [ "SVG Demo" ]

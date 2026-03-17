@@ -277,7 +277,7 @@ data Action
   | GotUser (Response GitHubUser)
   | FetchError (Response MisoString)
 
-updateModel :: Action -> Effect Model Action
+updateModel :: Action -> Effect parent Model Action
 updateModel = \case
   FetchUser ->
     getJSON

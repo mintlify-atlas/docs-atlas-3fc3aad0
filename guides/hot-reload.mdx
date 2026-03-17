@@ -109,6 +109,51 @@ make serve
   The `-fghci-browser` flag must not be used in production builds. It opens a WebSocket control channel that is only appropriate during development.
 </Warning>
 
+## Miso.Reload functions
+
+The `Miso.Reload` module exports two functions for use with WASM browser mode:
+
+```haskell
+import Miso.Reload
+
+-- | Clears <body> and <head> on each reload, then re-draws the app.
+-- All Component state is reset on each reload.
+reload
+  :: Eq model
+  => Events
+  -> App model action
+  -> IO ()
+
+-- | Live reload — persists all Component model state between GHCi reloads.
+-- Use this when you are changing view/update but NOT the model schema.
+-- Warning: changing model fields (add/remove/type change) will likely segfault.
+live
+  :: Eq model
+  => Events
+  -> App model action
+  -> IO ()
+```
+
+Choose based on what you're changing:
+
+| Use | When |
+|-----|------|
+| `live` | Iterating on `view` or `update` logic, model schema is stable |
+| `reload` | Changing `model` type (adding/removing/changing fields) |
+
+The [miso-sampler](https://github.com/haskell-miso/miso-sampler) uses `live` by default:
+
+```haskell
+main :: IO ()
+#ifdef INTERACTIVE
+main = live defaultEvents app
+#else
+main = startApp defaultEvents app
+#endif
+```
+
+The `INTERACTIVE` CPP flag is set during hot reload builds.
+
 ## Further reading
 
 - [WASM GHCi browser mode](https://www.tweag.io/blog/2025-04-17-wasm-ghci-browser/) — Tweag blog post explaining the underlying technology

@@ -85,7 +85,7 @@ The view is split into three logical sections that map directly to the TodoMVC H
 The header contains the application title and the new-todo input field. Pressing Enter dispatches `Add`, which appends a new `Todo` to the list and clears `field`.
 
 ```haskell
-viewInput :: MisoString -> View Action
+viewInput :: MisoString -> View Model Action
 viewInput task =
   header_ [ class_ "header" ]
     [ h1_ [] [ text "todos" ]
@@ -105,7 +105,7 @@ viewInput task =
 The main section renders the toggle-all checkbox and the filtered list of items. Each item is its own view function that handles the editing state:
 
 ```haskell
-viewEntry :: Todo -> View Action
+viewEntry :: Todo -> View Model Action
 viewEntry todo =
   li_ [ class_ $ if completed todo then "completed" else ""
         <> if editing todo then " editing" else ""

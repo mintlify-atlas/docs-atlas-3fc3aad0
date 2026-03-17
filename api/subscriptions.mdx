@@ -60,7 +60,7 @@ componentSubs :: [Sub Action]
 componentSubs = [ routerSub RouteChanged ]
 
 -- Navigate programmatically
-goHome :: Effect Model Action
+goHome :: Effect parent Model Action
 goHome = io_ $ pushURI (toURI Home)
 ```
 
@@ -111,7 +111,7 @@ data Action = Move Arrows
 componentSubs :: [Sub Action]
 componentSubs = [ arrowsSub Move ]
 
-updateModel :: Action -> Effect Model Action
+updateModel :: Action -> Effect parent Model Action
 updateModel (Move Arrows{..}) = do
   playerX += arrowX
   playerY += arrowY
@@ -145,7 +145,7 @@ data Action = MouseMoved PointerEvent
 componentSubs :: [Sub Action]
 componentSubs = [ mouseSub MouseMoved ]
 
-updateModel :: Action -> Effect Model Action
+updateModel :: Action -> Effect parent Model Action
 updateModel (MouseMoved ev) = do
   mousePos .= (clientX ev, clientY ev)
 ```
@@ -227,7 +227,7 @@ data Action = NetworkStatusChanged Bool
 componentSubs :: [Sub Action]
 componentSubs = [ onLineSub NetworkStatusChanged ]
 
-updateModel :: Action -> Effect Model Action
+updateModel :: Action -> Effect parent Model Action
 updateModel (NetworkStatusChanged online) = do
   isOnline .= online
 ```

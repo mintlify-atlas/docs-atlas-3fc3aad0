@@ -104,7 +104,7 @@ value = fromMisoString "42"
 Since `MisoString` is `Text` on the server backend, all `Data.Text` functions are available when compiling for prerendering. In your miso views, you will most commonly use `ms` to embed values:
 
 ```haskell
-viewModel :: Model -> View Action
+viewModel :: Model -> View Model Action
 viewModel model =
   div_ []
     [ text (ms (count model))        -- Int → MisoString

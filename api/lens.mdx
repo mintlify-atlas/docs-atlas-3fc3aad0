@@ -168,7 +168,7 @@ this :: Lens a a  -- alias for _id
 ```haskell
 type Model = Int
 
-updateModel :: Action -> Effect Model Action
+updateModel :: Action -> Effect parent Model Action
 updateModel Increment = this += 1
 updateModel Decrement = this -= 1
 ```
@@ -247,7 +247,7 @@ message = lens _message $ \m v -> m { _message = v }
 
 data Action = Increment | Decrement | SetMsg String | ClearMsg
 
-updateModel :: Action -> Effect Model Action
+updateModel :: Action -> Effect parent Model Action
 updateModel = \case
   Increment -> count += 1
   Decrement -> count -= 1

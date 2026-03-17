@@ -249,7 +249,7 @@ import Miso.CSS.Color (red, blue)
 type Model = ()
 data Action = NoOp
 
-viewModel :: Model -> View Action
+viewModel :: Model -> View Model Action
 viewModel _ =
   div_ []
     [ canvas

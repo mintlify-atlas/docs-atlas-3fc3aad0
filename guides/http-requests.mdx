@@ -238,7 +238,7 @@ data Action
   | ErrorHandler (Response MisoString)
   deriving (Show, Eq)
 
-updateModel :: Action -> Effect Model Action
+updateModel :: Action -> Effect parent Model Action
 updateModel = \case
   FetchGitHub ->
     getJSON "https://api.github.com" [] SetGitHub ErrorHandler

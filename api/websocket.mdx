@@ -213,7 +213,7 @@ data Action
 initialModel :: Model
 initialModel = Model emptyWebSocket []
 
-updateModel :: Action -> Effect Model Action
+updateModel :: Action -> Effect parent Model Action
 updateModel = \case
   Connect ->
     connectJSON "wss://example.com/chat"
@@ -235,7 +235,7 @@ updateModel = \case
   Error err ->
     io_ $ consoleError err
 
-viewModel :: Model -> View Action
+viewModel :: Model -> View Model Action
 viewModel Model{..} =
   div_ []
     [ button_ [ onClick Connect ] [ "Connect" ]

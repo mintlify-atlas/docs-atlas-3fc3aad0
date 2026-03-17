@@ -1,0 +1,158 @@
+---
+title: "Miso.EventSource"
+description: "Server-Sent Events (SSE) support in miso"
+---
+
+`Miso.EventSource` provides a typed interface to the browser [EventSource API](https://developer.mozilla.org/en-US/docs/Web/API/EventSource) for consuming [Server-Sent Events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events).
+
+```haskell
+import Miso.EventSource
+```
+
+<Note>
+  `Miso.EventSource` is **not** re-exported from the top-level `Miso` module. You must import it explicitly.
+</Note>
+
+## Overview
+
+Server-Sent Events (SSE) provide a one-way, server-to-client streaming connection over HTTP. Unlike WebSockets, SSE connections are automatically reconnected by the browser and use standard HTTP.
+
+See the [miso-sse](https://github.com/haskell-miso/miso-sse) repository for a complete example with a live demo at [sse.haskell-miso.org](https://sse.haskell-miso.org).
+
+## Types
+
+```haskell
+-- | An opaque EventSource connection handle
+data EventSource
+
+-- | An empty/uninitialized EventSource handle
+emptyEventSource :: EventSource
+
+-- | URL type alias
+type URL = MisoString
+
+-- | Payload variants (re-exported from Miso.WebSocket)
+data Payload value
+  = JSON value
+  | BLOB Blob
+  | TEXT MisoString
+  | BUFFER ArrayBuffer
+```
+
+## Connecting
+
+### Text protocol
+
+```haskell
+-- | Connect to an SSE endpoint that sends plain-text messages.
+connectText
+  :: URL
+  -> (EventSource -> action)  -- ^ onOpen: called when the connection opens
+  -> (MisoString -> action)   -- ^ onMessage: called for each message received
+  -> (MisoString -> action)   -- ^ onError: called on connection error
+  -> Effect parent model action
+```
+
+### JSON protocol
+
+```haskell
+-- | Connect to an SSE endpoint that sends JSON-encoded messages.
+connectJSON
+  :: FromJSON value
+  => URL
+  -> (EventSource -> action)  -- ^ onOpen
+  -> (value -> action)         -- ^ onMessage: decoded Haskell value
+  -> (MisoString -> action)    -- ^ onError
+  -> Effect parent model action
+```
+
+## Closing
+
+```haskell
+-- | Close the SSE connection.
+close
+  :: EventSource
+  -> Effect parent model action
+```
+
+## Querying state
+
+```haskell
+-- | Read the current connection state.
+socketState
+  :: EventSource
+  -> (SocketState -> action)
+  -> Effect parent model action
+```
+
+## Full example
+
+```haskell
+module Main where
+
+import Miso
+import Miso.EventSource
+import Miso.String (MisoString)
+
+data Event = Event { message :: MisoString }
+  deriving (Show, Eq, Generic)
+
+instance FromJSON Event
+
+data Model = Model
+  { source   :: EventSource
+  , events   :: [MisoString]
+  } deriving (Show, Eq)
+
+initialModel :: Model
+initialModel = Model emptyEventSource []
+
+data Action
+  = Connect
+  | Connected    EventSource
+  | Received     Event
+  | Error        MisoString
+
+updateModel :: Action -> Effect parent Model Action
+updateModel = \case
+  Connect ->
+    connectJSON "https://example.com/events"
+      Connected Received Error
+
+  Connected es ->
+    source .= es
+
+  Received ev ->
+    events %= (message ev :)
+
+  Error err ->
+    io_ $ consoleError err
+
+viewModel :: Model -> View Model Action
+viewModel Model{..} =
+  div_ []
+    [ button_ [ onClick Connect ] [ "Connect to SSE" ]
+    , ul_ [] $ map (\e -> li_ [] [ text e ]) events
+    ]
+
+app :: App Model Action
+app = (component initialModel updateModel viewModel)
+  { mount = Just Connect }
+
+main :: IO ()
+main = startApp defaultEvents app
+```
+
+## SSE vs WebSockets
+
+| Feature | SSE (`Miso.EventSource`) | WebSocket (`Miso.WebSocket`) |
+|---------|--------------------------|------------------------------|
+| Direction | Server → Client only | Bidirectional |
+| Protocol | HTTP/1.1 or HTTP/2 | WS/WSS |
+| Auto-reconnect | Yes (browser handles it) | No (must handle manually) |
+| Multiplexing | HTTP/2 multiplexes; HTTP/1 uses a connection | Separate connection per socket |
+| Use case | Live feeds, notifications | Chat, real-time collaboration |
+
+<Tip>
+  Use SSE when you only need server-to-client streaming (e.g. live data dashboards, notification feeds). Use WebSockets when you need bidirectional communication.
+</Tip>

@@ -219,7 +219,7 @@ data Action
 app :: App Model Action
 app = component initialModel update view
 
-update :: Action -> Effect Model Model Action
+update :: Action -> Effect parent Model Action
 update = \case
   SocketOpen ws ->
     socket .= ws
@@ -235,12 +235,13 @@ update = \case
 
 main :: IO ()
 main = startApp defaultEvents $
-  app { subs = [ connectJSON "wss://example.com/chat"
-                   SocketOpen SocketClose SocketMsg SocketError
-               ]
-      }
+  app { mount = Just Connect }
+  where
+    update Connect =
+      connectJSON "wss://example.com/chat"
+        SocketOpen SocketClose SocketMsg SocketError
 ```
 
 <Note>
-  `connect*` functions return an `Effect`, so they can be called directly from `startApp`'s `subs` field or from within any `update` handler.
+  `connect*` functions return an `Effect`, so they are called inside the `update` function (e.g. on a `Connect` action triggered by the `mount` hook).
 </Note>

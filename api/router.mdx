@@ -252,11 +252,11 @@ data Route
 data Model = Model { currentRoute :: Either RoutingError Route }
 data Action = RouteChanged (Either RoutingError Route)
 
-updateModel :: Action -> Effect Model Action
+updateModel :: Action -> Effect parent Model Action
 updateModel (RouteChanged r) = do
   currentRoute .= r
 
-viewModel :: Model -> View Action
+viewModel :: Model -> View Model Action
 viewModel model =
   div_ []
     [ nav_ []
