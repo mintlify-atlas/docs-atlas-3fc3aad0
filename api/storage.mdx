@@ -1,0 +1,150 @@
+---
+title: "Miso.Storage"
+description: "Browser localStorage and sessionStorage"
+---
+
+`Miso.Storage` provides an interface to the browser's [Web Storage API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Storage_API). Values are stored and retrieved as JSON using the standard `FromJSON` / `ToJSON` typeclasses.
+
+## localStorage
+
+```haskell
+-- | Read a value from localStorage by key.
+-- Returns Left "Not Found" if the key doesn't exist,
+-- or Left <decode error> if the value isn't valid JSON for the type.
+getLocalStorage
+  :: FromJSON model
+  => MisoString
+  -> IO (Either MisoString model)
+
+-- | Write a value to localStorage under the given key.
+-- The value is JSON-encoded before storage.
+setLocalStorage
+  :: ToJSON model
+  => MisoString  -- ^ key
+  -> model       -- ^ value
+  -> IO ()
+
+-- | Remove an item from localStorage.
+removeLocalStorage :: MisoString -> IO ()
+
+-- | Remove all items from localStorage.
+clearLocalStorage :: IO ()
+
+-- | Number of items currently in localStorage.
+localStorageLength :: IO Int
+```
+
+## sessionStorage
+
+```haskell
+-- | Read a value from sessionStorage by key.
+getSessionStorage
+  :: FromJSON model
+  => MisoString
+  -> IO (Either MisoString model)
+
+-- | Write a value to sessionStorage under the given key.
+setSessionStorage
+  :: ToJSON model
+  => MisoString
+  -> model
+  -> IO ()
+
+-- | Remove an item from sessionStorage.
+removeSessionStorage :: MisoString -> IO ()
+
+-- | Remove all items from sessionStorage.
+clearSessionStorage :: IO ()
+
+-- | Number of items currently in sessionStorage.
+sessionStorageLength :: IO Int
+```
+
+## localStorage vs sessionStorage
+
+| Feature | localStorage | sessionStorage |
+|---|---|---|
+| Persistence | Survives page refresh and browser restart | Cleared when the browser tab is closed |
+| Scope | Shared across all tabs for the same origin | Isolated to the current tab |
+| Capacity | ~5 MB | ~5 MB |
+
+## JSON Serialization
+
+All values are automatically JSON-encoded on write and decoded on read. Any type with `ToJSON` / `FromJSON` instances works:
+
+```haskell
+data AppState = AppState
+  { count   :: Int
+  , username :: Maybe Text
+  } deriving (Show, Eq, Generic)
+
+instance ToJSON   AppState
+instance FromJSON AppState
+
+-- Store the state
+setLocalStorage "app-state" AppState { count = 5, username = Just "alice" }
+
+-- Restore the state
+result <- getLocalStorage "app-state"
+case result of
+  Left err    -> putStrLn ("Error: " <> unpack err)
+  Right state -> print state
+```
+
+## Usage in a miso Update Function
+
+Storage functions return `IO`, so use `io` / `io_` inside the `Effect` monad:
+
+```haskell
+import Miso
+import Miso.Storage
+import Miso.String (ms)
+
+data Model = Model { count :: Int }
+  deriving (Show, Eq, Generic)
+
+instance ToJSON   Model
+instance FromJSON Model
+
+data Action
+  = Increment
+  | Decrement
+  | SaveState
+  | LoadState
+  | StateLoaded (Either MisoString Model)
+
+updateModel :: Action -> Effect Model Action
+updateModel = \case
+  Increment -> count += 1
+
+  Decrement -> count -= 1
+
+  SaveState -> do
+    model <- get
+    io_ $ setLocalStorage "counter" model
+
+  LoadState ->
+    io $ StateLoaded <$> getLocalStorage "counter"
+
+  StateLoaded (Right model) ->
+    put model
+
+  StateLoaded (Left _err) ->
+    pure ()  -- key not found or decode error
+```
+
+## Persisting State on Every Update
+
+```haskell
+updateModel :: Action -> Effect Model Action
+updateModel action = do
+  -- Run the real update
+  handleAction action
+  -- Persist after every change
+  model <- get
+  io_ $ setLocalStorage "my-app" model
+```
+
+<Note>
+  Storage operations are synchronous in the browser and run in `IO`. They are safe to call from within `io` or `io_` inside the `Effect` monad.
+</Note>

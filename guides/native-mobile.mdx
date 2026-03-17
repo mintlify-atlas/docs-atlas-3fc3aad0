@@ -1,0 +1,102 @@
+---
+title: "Native mobile"
+description: "Building iOS, Android, and HarmonyOS apps with miso-lynx"
+---
+
+Miso supports native mobile application development via [miso-lynx](https://github.com/haskell-miso/miso-lynx), a separate repository that targets [LynxJS](https://lynxjs.org) as its rendering backend.
+
+<Note>
+  `miso-lynx` is maintained in a **separate repository** from the miso core: [github.com/haskell-miso/miso-lynx](https://github.com/haskell-miso/miso-lynx). The miso core package does not need to change to support mobile targets.
+</Note>
+
+## Supported platforms
+
+<CardGroup cols={3}>
+  <Card title="iOS" icon="apple">
+    Native iOS applications via LynxJS.
+  </Card>
+  <Card title="Android" icon="android">
+    Native Android applications via LynxJS.
+  </Card>
+  <Card title="HarmonyOS" icon="mobile">
+    Huawei HarmonyOS device support.
+  </Card>
+</CardGroup>
+
+## What is LynxJS?
+
+[LynxJS](https://lynxjs.org) is a cross-platform rendering engine that allows JavaScript/Haskell logic to drive native UI components on iOS, Android, and HarmonyOS. Instead of a browser DOM, LynxJS provides a native rendering pipeline that maps declarative view trees to platform widgets.
+
+Miso's virtual DOM abstraction maps cleanly onto LynxJS's component model: the same `view` function and `update` loop you write for the web can be reused for mobile with a different renderer underneath.
+
+## Architecture
+
+Miso's rendering is decoupled from any specific DOM implementation through a renderer abstraction. The relevant pieces are:
+
+- **`SomeComponent`** — a type-erased component wrapper used by the runtime
+- **Renderer** — the piece that translates miso's virtual DOM patch operations into actual DOM (or native UI) mutations
+- **GHC JS backend** — miso-lynx uses the GHC JavaScript backend (`javascript-unknown-ghcjs-ghc`) to compile Haskell to JavaScript, which is then loaded by the LynxJS runtime on the device
+
+The `native` dev shell in miso's flake targets this configuration:
+
+```nix
+# GHCJS shell for building iOS / Android apps targeting LynxJS.org.
+native =
+  pkgs.mkShell {
+    name = "The miso-native ${system} GHC JS 9.12.2 shell";
+    packages = with pkgs; [
+      pkgsCross.ghcjs.haskell.packages.ghcNative.ghc
+      gnumake
+      http-server
+      cabal-install
+      emscripten
+      tailwindcss_4
+    ];
+  };
+```
+
+Enter this shell with:
+
+```bash
+nix develop .#native
+```
+
+## Building
+
+Inside the `native` dev shell, build with the GHC JS backend:
+
+```bash
+cabal build \
+  --with-compiler=javascript-unknown-ghcjs-ghc \
+  --with-hc-pkg=javascript-unknown-ghcjs-ghc-pkg
+```
+
+The resulting JavaScript bundle is then packaged and loaded by the LynxJS runtime on the target device. See the [miso-lynx repository](https://github.com/haskell-miso/miso-lynx) for device-specific packaging instructions.
+
+## Writing mobile views
+
+Miso-lynx apps are written in the same style as web miso apps. The `component` function, `Effect` monad, and `view` function work identically. Only the set of available elements and properties differs — instead of HTML elements you use LynxJS component types.
+
+```haskell
+-- A miso-lynx view looks structurally identical to a web view.
+viewModel :: Model -> View Model Action
+viewModel model =
+  -- LynxJS element constructors replace Miso.Html constructors
+  view_ [] [ text_ [] [ text (ms (counter model)) ] ]
+```
+
+<Tip>
+  Check the [miso-lynx repository](https://github.com/haskell-miso/miso-lynx) for the current status of supported elements, installation instructions, and example applications.
+</Tip>
+
+## Relationship to miso core
+
+| | miso (core) | miso-lynx |
+|---|---|---|
+| Targets | Web (WASM, GHCJS, GHC) | iOS, Android, HarmonyOS |
+| Renderer | Browser DOM | LynxJS native renderer |
+| Repository | [dmjio/miso](https://github.com/dmjio/miso) | [haskell-miso/miso-lynx](https://github.com/haskell-miso/miso-lynx) |
+| Compiler | GHC WASM or GHCJS | GHC JS backend (GHCJS) |
+| Architecture | Isomorphic (client + server) | Mobile-native |
+
+The programming model is intentionally shared: the `Effect`, `component`, and virtual DOM types come from `miso` core. `miso-lynx` only replaces the renderer and element vocabulary.

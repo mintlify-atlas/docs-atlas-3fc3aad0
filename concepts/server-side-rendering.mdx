@@ -1,0 +1,216 @@
+---
+title: "Server-side rendering"
+description: "Isomorphic rendering, hydration, and the SSR flag"
+---
+
+Miso is isomorphic: the same `View` functions that run in the browser can also run on a vanilla GHC server to produce static HTML. The client then "hydrates" that HTML — populating the virtual DOM from the real DOM instead of redrawing it — which avoids a blank-page flash on load and improves SEO.
+
+## The SSR cabal flag
+
+Enable server-side rendering by building with the `SSR` cabal flag:
+
+```bash
+cabal build -f SSR
+```
+
+With this flag enabled:
+
+- `text` calls `htmlEncode` before storing the string, ensuring user content is always escaped when serialized to HTML.
+- `getInitialComponentModel` in `Miso.Html.Render` uses `hydrateModel` to load server-injected state.
+- `renderBuilder` evaluates child `VComp` views using the hydrated model rather than the default model.
+
+<Note>
+The `SSR` flag is only relevant for the server executable. Your client (WASM or JS) binary is built without it.
+</Note>
+
+## Rendering HTML on the server
+
+Import `Miso.Html.Render` and use the `ToHtml` typeclass:
+
+```haskell
+class ToHtml a where
+  toHtml :: a -> L.ByteString
+```
+
+Instances are provided for `View m a` and `[View m a]`:
+
+```haskell
+import Miso.Html.Render (ToHtml (..))
+import qualified Data.ByteString.Lazy as L
+
+renderPage :: L.ByteString
+renderPage = toHtml (view initialModel)
+```
+
+The renderer handles:
+
+- Self-closing tags for `area`, `base`, `br`, `col`, `embed`, `hr`, `img`, `input`, `link`, `meta`, `param`, `source`, `track`, `wbr` and their SVG/MathML equivalents.
+- Boolean HTML attributes (`disabled`, `checked`, `required`, etc.) — present when `True`, omitted when `False`.
+- Inline `Styles` as `style="k:v;"`.
+- `ClassList` as `class="a b c"`.
+- `On` event handlers are silently dropped (they have no HTML representation).
+- A special `VNode _ "doctype" [] []` renders as `<!doctype html>`.
+- Adjacent `VText` siblings are collapsed into one text node, matching the browser's parsing behavior and preventing hydration mismatches.
+
+## `text` vs `textRaw` and HTML escaping
+
+```haskell
+-- On the server (with -f SSR), text HTML-encodes its argument:
+text :: MisoString -> View model action
+text = VText Nothing . htmlEncode   -- SSR build
+text = VText Nothing                -- client build
+
+-- textRaw skips escaping in all builds:
+textRaw :: MisoString -> View model action
+textRaw = VText Nothing
+```
+
+Use `text` for user-supplied strings. Use `textRaw` only when you are certain the string is already safe HTML (for example, pre-processed markdown output).
+
+The `htmlEncode` helper is available for manual use:
+
+```haskell
+htmlEncode :: MisoString -> MisoString
+-- Escapes: < > & " '
+```
+
+## Starting the client with hydration
+
+Use `miso` (instead of `startApp`) on the client when the page has been pre-rendered by the server:
+
+```haskell
+-- startApp: assumes <body> is empty and draws from scratch.
+startApp :: Eq model => Events -> App model action -> IO ()
+
+-- miso: assumes <body> is already populated. Hydrates instead of drawing.
+miso :: Eq model => Events -> (URI -> App model action) -> IO ()
+
+-- prerender: like miso, but discards the URI argument.
+prerender :: Eq model => Events -> App model action -> IO ()
+```
+
+```haskell
+-- Client main (WASM / JS)
+main :: IO ()
+main = miso defaultEvents $ \uri ->
+  app { subs = [ routerSub RouteChanged ] }
+```
+
+During hydration, miso walks the real DOM and populates the virtual DOM tree from it. If the structures match, no DOM mutations occur. If they differ, miso falls back to a full redraw (clearing `<body>` first).
+
+## Loading server-injected state with `hydrateModel`
+
+The `Component` type exposes a `hydrateModel` field for loading state that was injected into the page by the server:
+
+```haskell
+data Component parent model action = Component
+  { model        :: model
+  , hydrateModel :: Maybe (IO model)
+  -- ^ Runs once during initial hydration.
+  -- The result replaces 'model' for the first render.
+  -- Has no effect on remounts.
+  , ...
+  }
+```
+
+A typical pattern is to embed the serialized model in a `<script>` tag on the server and read it back in `hydrateModel`:
+
+```haskell
+-- Server: embed state in the page
+serverView :: Model -> View Model action
+serverView m =
+  H.html_ []
+    [ H.head_ [] []
+    , H.body_ []
+        [ H.script_ [ HP.id_ "initial-model", HP.type_ "application/json" ]
+            [ textRaw (ms (encode m)) ]
+        , appView m
+        ]
+    ]
+
+-- Client: read it back
+app :: App Model Action
+app = (component defaultModel update view)
+  { hydrateModel = Just loadModel
+  }
+  where
+    loadModel :: IO Model
+    loadModel = do
+      el  <- getElementById "initial-model"
+      txt <- innerText el
+      case decode txt of
+        Just m  -> pure m
+        Nothing -> pure defaultModel
+```
+
+## Debugging hydration mismatches with `LogLevel`
+
+When the server-rendered DOM and the virtual DOM produced by `view` differ, miso can warn you in the browser console:
+
+```haskell
+data LogLevel
+  = Off          -- No logging (default)
+  | DebugHydrate -- Warn on structure or property mismatches during hydration
+  | DebugEvents  -- Warn when events cannot be routed
+  | DebugAll     -- All of the above
+```
+
+Enable it on your component:
+
+```haskell
+app :: App Model Action
+app = (component initialModel update view)
+  { logLevel = DebugHydrate
+  }
+```
+
+With `DebugHydrate`, the runtime compares each virtual node against the corresponding real DOM node and logs any discrepancy. This makes it straightforward to identify which part of the view function produces output that does not match the server HTML.
+
+## Recommended project layout
+
+A standard miso SSR project uses two executables in one cabal file that share a common library:
+
+```
+my-app/
+├── my-app.cabal
+└── src/
+    ├── Common.hs   -- View, Model, Action, Router (shared)
+    ├── Client.hs   -- main = miso defaultEvents ...
+    └── Server.hs   -- main = run 3000 (serve api handler)
+```
+
+```cabal
+library
+  exposed-modules: Common
+  build-depends:   miso
+
+executable client
+  main-is:       Client.hs
+  build-depends: miso, my-app
+  -- compile with wasm32-wasi-ghc or javascript-unknown-ghcjs-ghc
+
+executable server
+  main-is:       Server.hs
+  build-depends: miso, my-app, servant-server, warp
+  cpp-options:   -DSSR
+  -- compile with vanilla GHC
+```
+
+The `Common` module imports from `miso` and defines the `View`, `Model`, `Action`, and `Router` types. Both executables import `Common`. The `CPP` flag `-DSSR` switches the `text` and `renderBuilder` behavior in the server build.
+
+## The `prerender` function
+
+`prerender` is a convenience wrapper around `miso` for applications that use SSR but do not need URL-based routing:
+
+```haskell
+prerender :: Eq model => Events -> App model action -> IO ()
+prerender events comp = initComponent events Hydrate comp { mountPoint = Nothing }
+```
+
+Use `prerender` when the server always renders the same page regardless of URL and you just want hydration without a `routerSub`:
+
+```haskell
+-- Client
+main :: IO ()
+main = prerender defaultEvents app
+```

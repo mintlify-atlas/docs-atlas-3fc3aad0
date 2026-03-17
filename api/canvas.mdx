@@ -1,0 +1,278 @@
+---
+title: "Miso.Canvas"
+description: "HTML5 Canvas 2D drawing API"
+---
+
+`Miso.Canvas` provides a typed DSL for the [HTML5 Canvas 2D API](https://developer.mozilla.org/en-US/docs/Web/API/CanvasRenderingContext2D). Drawing operations run inside a `Canvas` monad backed by `ReaderT CanvasContext2D IO`.
+
+## Core Types
+
+```haskell
+-- | The Canvas drawing monad
+type Canvas a = ReaderT CanvasContext2D IO a
+
+-- | Underlying JS context value
+type CanvasContext2D = JSVal
+
+-- | An (x, y) coordinate pair
+type Coord = (Double, Double)
+
+-- | Color, gradient, or pattern for fill/stroke styles
+data StyleArg
+  = ColorArg Color
+  | GradientArg Gradient
+  | PatternArg Pattern
+
+newtype Pattern  = Pattern JSVal
+newtype Gradient = Gradient JSVal
+newtype ImageData = ImageData JSVal
+```
+
+### Smart Constructors for StyleArg
+
+```haskell
+color    :: Color    -> StyleArg
+gradient :: Gradient -> StyleArg
+pattern_ :: Pattern  -> StyleArg
+```
+
+### Enum Types
+
+```haskell
+data LineCapType  = LineCapButt | LineCapRound | LineCapSquare
+data LineJoinType = LineJoinBevel | LineJoinRound | LineJoinMiter
+data DirectionType = LTR | RTL | Inherit
+data TextAlignType = TextAlignCenter | TextAlignEnd | TextAlignLeft
+                   | TextAlignRight   | TextAlignStart
+data TextBaselineType
+  = TextBaselineAlphabetic | TextBaselineTop    | TextBaselineHanging
+  | TextBaselineMiddle     | TextBaselineIdeographic | TextBaselineBottom
+data CompositeOperation
+  = SourceOver | SourceAtop | SourceIn  | SourceOut
+  | DestinationOver | DestinationAtop | DestinationIn | DestinationOut
+  | Lighter | Copy | Xor
+data PatternType = Repeat | RepeatX | RepeatY | NoRepeat
+```
+
+## Canvas Elements
+
+Two element constructors are provided:
+
+```haskell
+-- | Canvas element backed by the 2D context monad (ReaderT-based)
+canvas
+  :: (FromJSVal canvasState, ToJSVal canvasState)
+  => [Attribute action]
+  -> (DOMRef -> Canvas canvasState) -- ^ init: receive DOM ref, return initial state
+  -> (canvasState -> Canvas ())      -- ^ draw: called each render
+  -> View model action
+
+-- | Canvas element for raw JSVal contexts (e.g. three.js, WebGL)
+canvas_
+  :: (FromJSVal canvasState, ToJSVal canvasState)
+  => [Attribute action]
+  -> (DOMRef -> IO canvasState)  -- ^ init
+  -> (canvasState -> IO ())       -- ^ draw
+  -> View model action
+```
+
+Use `canvas` for the standard 2D context. Use `canvas_` when you need raw `IO` access (e.g. for WebGL or third-party libraries).
+
+## Property Setter
+
+```haskell
+-- | Set a named property on the context
+set :: ToArgs args => MisoString -> args -> Canvas ()
+```
+
+## Rectangles
+
+```haskell
+-- | ctx.clearRect(x, y, width, height)
+clearRect  :: (Double, Double, Double, Double) -> Canvas ()
+
+-- | ctx.fillRect(x, y, width, height)
+fillRect   :: (Double, Double, Double, Double) -> Canvas ()
+
+-- | ctx.strokeRect(x, y, width, height)
+strokeRect :: (Double, Double, Double, Double) -> Canvas ()
+
+-- | ctx.rect(x, y, width, height)
+rect       :: (Double, Double, Double, Double) -> Canvas ()
+```
+
+## Paths
+
+```haskell
+beginPath        :: () -> Canvas ()
+closePath        :: () -> Canvas ()
+moveTo           :: Coord -> Canvas ()
+lineTo           :: Coord -> Canvas ()
+fill             :: () -> Canvas ()
+stroke           :: () -> Canvas ()
+clip             :: () -> Canvas ()
+
+-- | ctx.arc(x, y, r, startAngle, endAngle)
+arc              :: (Double, Double, Double, Double, Double) -> Canvas ()
+
+-- | ctx.arcTo(x1, y1, x2, y2, r)
+arcTo            :: (Double, Double, Double, Double, Double) -> Canvas ()
+
+-- | ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, x, y)
+bezierCurveTo    :: (Double, Double, Double, Double, Double, Double) -> Canvas ()
+
+-- | ctx.quadraticCurveTo(cpx, cpy, x, y)
+quadraticCurveTo :: (Double, Double, Double, Double) -> Canvas ()
+```
+
+## Styles & Colors
+
+```haskell
+fillStyle   :: StyleArg -> Canvas ()
+strokeStyle :: StyleArg -> Canvas ()
+globalAlpha :: Double -> Canvas ()
+globalCompositeOperation :: CompositeOperation -> Canvas ()
+```
+
+## Lines
+
+```haskell
+lineCap   :: LineCapType  -> Canvas ()
+lineJoin  :: LineJoinType -> Canvas ()
+lineWidth :: Double -> Canvas ()
+miterLimit :: Double -> Canvas ()
+```
+
+## Shadows
+
+```haskell
+shadowBlur    :: Double -> Canvas ()
+shadowColor   :: Color  -> Canvas ()
+shadowOffsetX :: Double -> Canvas ()
+shadowOffsetY :: Double -> Canvas ()
+```
+
+## Text
+
+```haskell
+-- | ctx.fillText(text, x, y)
+fillText   :: (MisoString, Double, Double) -> Canvas ()
+
+-- | ctx.strokeText(text, x, y)
+strokeText :: (MisoString, Double, Double) -> Canvas ()
+
+-- | ctx.font = "italic bold 16px Arial"
+font       :: MisoString -> Canvas ()
+
+textAlign    :: TextAlignType    -> Canvas ()
+textBaseline :: TextBaselineType -> Canvas ()
+direction    :: DirectionType    -> Canvas ()
+```
+
+## Transformations
+
+```haskell
+-- | ctx.scale(x, y)
+scale        :: (Double, Double) -> Canvas ()
+
+-- | ctx.rotate(angle)
+rotate       :: Double -> Canvas ()
+
+-- | ctx.translate(x, y)
+translate    :: Coord -> Canvas ()
+
+-- | ctx.transform(a, b, c, d, e, f)
+transform    :: (Double, Double, Double, Double, Double, Double) -> Canvas ()
+
+-- | ctx.setTransform(a, b, c, d, e, f)
+setTransform :: (Double, Double, Double, Double, Double, Double) -> Canvas ()
+```
+
+## Gradients & Patterns
+
+```haskell
+-- | ctx.createLinearGradient(x0, y0, x1, y1)
+createLinearGradient :: (Double, Double, Double, Double) -> Canvas Gradient
+
+-- | ctx.createRadialGradient(x0, y0, r0, x1, y1, r1)
+createRadialGradient :: (Double, Double, Double, Double, Double, Double) -> Canvas Gradient
+
+-- | gradient.addColorStop(stop, color)
+addColorStop :: (Double, Color) -> Gradient -> Canvas ()
+
+-- | ctx.createPattern(image, repeatType)
+createPattern :: (Image, PatternType) -> Canvas Pattern
+```
+
+## Image Data
+
+```haskell
+-- | ctx.drawImage(image, x, y)
+drawImage  :: (Image, Double, Double) -> Canvas ()
+
+-- | ctx.drawImage(image, x, y, width, height)
+drawImage' :: (Image, Double, Double, Double, Double) -> Canvas ()
+
+-- | ctx.createImageData(width, height)
+createImageData :: (Double, Double) -> Canvas ImageData
+
+-- | ctx.getImageData(x, y, width, height)
+getImageData    :: (Double, Double, Double, Double) -> Canvas ImageData
+
+-- | imageData.data[index] = value
+setImageData :: (ImageData, Int, Double) -> Canvas ()
+
+-- | ctx.putImageData(imageData, x, y)
+putImageData :: (ImageData, Double, Double) -> Canvas ()
+
+height :: ImageData -> Canvas Double
+width  :: ImageData -> Canvas Double
+```
+
+## State
+
+```haskell
+-- | ctx.save()
+save    :: () -> Canvas ()
+
+-- | ctx.restore()
+restore :: () -> Canvas ()
+```
+
+## Full Example
+
+```haskell
+import Miso
+import Miso.Canvas
+import Miso.CSS.Color (red, blue)
+
+type Model = ()
+data Action = NoOp
+
+viewModel :: Model -> View Action
+viewModel _ =
+  div_ []
+    [ canvas
+        [ width_ "400", height_ "300" ]
+        -- Init: get context, return canvas size as state
+        (\_ -> pure (400.0, 300.0))
+        -- Draw: called each render
+        (\(w, h) -> do
+            -- Clear
+            fillStyle (color red)
+            fillRect (0, 0, w, h)
+
+            -- Blue circle
+            beginPath ()
+            arc (w / 2, h / 2, 80, 0, 2 * pi)
+            fillStyle (color blue)
+            fill ()
+
+            -- Text
+            font "bold 24px sans-serif"
+            fillStyle (color (Hex "ffffff"))
+            textAlign TextAlignCenter
+            fillText ("Hello Canvas!", w / 2, h / 2 + 8)
+        )
+    ]
+```

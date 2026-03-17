@@ -1,0 +1,280 @@
+---
+title: "Miso.Router"
+description: "Type-safe servant-style client-side routing"
+---
+
+`Miso.Router` provides correct-by-construction URL encoding and decoding from any Haskell algebraic data type. Routes are reversible: the same type drives both URL parsing and URL generation, so links in your views are always in sync with your route definitions.
+
+## Overview
+
+The router can be used in two ways:
+
+<CardGroup cols={2}>
+  <Card title="Manual" icon="wrench">
+    Implement the `Router` typeclass by hand using parser combinators like `path`, `capture`, `queryParam`, and `queryFlag`.
+  </Card>
+  <Card title="Generic" icon="wand-magic-sparkles">
+    Derive `Router` automatically via `DeriveGeneric` and `DeriveAnyClass`. Constructor names become path segments.
+  </Card>
+</CardGroup>
+
+## The Router Typeclass
+
+```haskell
+class Router route where
+  -- | Deconstruct a route into a list of tokens
+  fromRoute :: route -> [Token]
+
+  -- | Convert a route to a URI
+  toURI :: route -> URI
+
+  -- | Map a URI back to a route
+  route :: URI -> Either RoutingError route
+
+  -- | Parse a URL string into a route
+  toRoute :: MisoString -> Either RoutingError route
+
+  -- | Generate a URL string from a route
+  prettyRoute :: route -> MisoString
+
+  -- | Type-safe href_ attribute for use in View
+  href_ :: route -> Attribute action
+
+  -- | Dump URI for debugging
+  dumpURI :: route -> MisoString
+
+  routeParser :: RouteParser route
+```
+
+## Generic Deriving
+
+The recommended approach. Constructor names are lowercased and truncated at the first camel-case boundary to produce path segments.
+
+```haskell
+{-# LANGUAGE DeriveAnyClass  #-}
+{-# LANGUAGE DeriveGeneric   #-}
+{-# LANGUAGE DerivingStrategies #-}
+
+import Miso.Router
+import Miso.String (MisoString)
+
+data Route
+  = Index
+  | About
+  | Widget (Capture "id" Int) (Path "widget") (QueryParam "tab" MisoString)
+  deriving stock (Generic, Show, Eq)
+  deriving anyclass Router
+```
+
+With this definition:
+
+```haskell
+-- Parsing
+toRoute "/widget/23/widget?tab=settings"
+-- Right (Widget (Capture 23) (Path "widget") (QueryParam (Just "settings")))
+
+-- Generation
+prettyRoute (Widget (Capture 23) (Path "widget") (QueryParam (Just "settings")))
+-- "/widget/23/widget?tab=settings"
+
+-- The special Index constructor maps to "/"
+prettyRoute Index
+-- "/"
+
+-- Camel-case: only the first hump is used
+-- FooBar -> "/foo"
+```
+
+<Note>
+  The `Index` constructor name is special — it encodes to the root path `"/"`. Camel-case constructor names use only the first lowercase run, so `FooBar` becomes `"/foo"`.
+</Note>
+
+## Manual Routing
+
+Implement `Router` by hand when you need full control over parsing:
+
+```haskell
+data Route = Widget MisoString Int
+
+instance Router Route where
+  routeParser = routes
+    [ Widget <$> path "widget" <*> capture
+    ]
+  fromRoute (Widget p v) = [ toPath p, toCapture v ]
+
+-- Run the parser directly
+runRouter :: MisoString -> RouteParser route -> Either RoutingError route
+
+example :: Either RoutingError Route
+example = runRouter "/widget/10" routeParser
+-- Right (Widget "widget" 10)
+```
+
+## Route Types
+
+These newtypes tag fields of your route data type to indicate their URL role:
+
+```haskell
+-- | A capture variable in a URL path segment
+newtype Capture sym a = Capture a
+
+-- | A fixed path segment (type-level string)
+newtype Path (path :: Symbol) = Path MisoString
+
+-- | An optional query parameter
+newtype QueryParam (path :: Symbol) a = QueryParam (Maybe a)
+
+-- | A boolean query flag
+newtype QueryFlag (path :: Symbol) = QueryFlag Bool
+```
+
+<Note>
+  The order of `Capture` and `Path` fields in your constructor matters for URL parsing. `QueryParam` and `QueryFlag` fields can appear in any order.
+</Note>
+
+## Parser Combinators
+
+Used when implementing `routeParser` manually:
+
+```haskell
+-- | Parse a capture variable from the next path segment
+capture :: FromMisoString value => RouteParser value
+
+-- | Match a fixed path segment by name
+path :: MisoString -> RouteParser MisoString
+
+-- | Parse a query parameter by name
+queryParam
+  :: (FromMisoString a, KnownSymbol param)
+  => RouteParser (QueryParam param a)
+
+-- | Parse a query flag by name
+queryFlag :: KnownSymbol flag => RouteParser (QueryFlag flag)
+
+-- | Combine multiple route alternatives
+routes :: [RouteParser route] -> RouteParser route
+```
+
+## Token Construction
+
+Used when implementing `fromRoute` manually:
+
+```haskell
+-- | Build a path segment token
+toPath :: MisoString -> Token
+
+-- | Build a capture token from any ToMisoString value
+toCapture :: ToMisoString string => string -> Token
+
+-- | Build a query parameter token
+toQueryParam :: ToMisoString s => MisoString -> s -> Token
+```
+
+## URI Utilities
+
+```haskell
+-- | Parse a MisoString into a URI
+parseURI :: MisoString -> Either MisoString URI
+
+-- | Render a URI as a MisoString
+prettyURI :: URI -> MisoString
+
+-- | Lex a URL string into tokens
+lexTokens :: MisoString -> Either LexerError [Token]
+
+-- | Build a URI from tokens
+tokensToURI :: [Token] -> URI
+
+-- | An empty URI
+emptyURI :: URI
+```
+
+## RoutingError
+
+```haskell
+data RoutingError
+  = ParseError MisoString [Token]
+    -- ^ Parse succeeded but tokens were left over
+  | AmbiguousParse MisoString [Token]
+    -- ^ Multiple parses matched
+  | LexError MisoString MisoString
+    -- ^ Lexing failed with an error message
+  | LexErrorEOF MisoString
+    -- ^ Unexpected end of input during lexing
+  | NoParses MisoString
+    -- ^ No parse alternatives matched
+```
+
+## Subscriptions
+
+Use these with `Miso.Subscription.History` to react to navigation events:
+
+```haskell
+-- | Subscribe to raw URI changes (popstate events)
+uriSub :: (URI -> action) -> Sub action
+
+-- | Subscribe to popstate events, decoded through your Router
+routerSub :: Router route => (Either RoutingError route -> action) -> Sub action
+```
+
+## Type-Safe Links
+
+The `href_` method generates a type-safe `href` attribute:
+
+```haskell
+import Miso
+import Miso.Router
+
+button_ [ href_ (Widget (Capture 10) (Path "widget") (QueryParam Nothing)) ]
+        [ "Go to widget 10" ]
+```
+
+## Full Example
+
+```haskell
+{-# LANGUAGE DeriveAnyClass     #-}
+{-# LANGUAGE DeriveGeneric      #-}
+{-# LANGUAGE DerivingStrategies #-}
+
+module Main where
+
+import Miso
+import Miso.Router
+import Miso.String (MisoString)
+
+data Route
+  = Index
+  | About
+  | Item (Capture "id" Int)
+  deriving stock (Generic, Show, Eq)
+  deriving anyclass Router
+
+data Model = Model { currentRoute :: Either RoutingError Route }
+data Action = RouteChanged (Either RoutingError Route)
+
+updateModel :: Action -> Effect Model Action
+updateModel (RouteChanged r) = do
+  currentRoute .= r
+
+viewModel :: Model -> View Action
+viewModel model =
+  div_ []
+    [ nav_ []
+        [ a_ [ href_ Index ] [ "Home" ]
+        , a_ [ href_ About ] [ "About" ]
+        , a_ [ href_ (Item (Capture 42)) ] [ "Item 42" ]
+        ]
+    , case currentRoute model of
+        Right Index -> div_ [] [ "Welcome home" ]
+        Right About -> div_ [] [ "About page" ]
+        Right (Item (Capture n)) -> div_ [] [ text (ms n) ]
+        Left err -> div_ [] [ text (ms (show err)) ]
+    ]
+
+main :: IO ()
+main = run $ component
+  Model { currentRoute = Right Index }
+  updateModel
+  viewModel
+  [ routerSub RouteChanged ]
+```

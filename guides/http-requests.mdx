@@ -1,0 +1,281 @@
+---
+title: "HTTP requests"
+description: "Fetching data from HTTP APIs using Miso.Fetch"
+---
+
+Miso provides the `Miso.Fetch` module as a typed interface to the browser's [Fetch API](https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API). Functions are organized by the type of data being sent or received, and each integrates with miso's `Effect` system via `withSink`.
+
+## JSON
+
+The most common operations fetch or post JSON-encoded data.
+
+### `getJSON`
+
+Retrieves a JSON response from a URL.
+
+```haskell
+getJSON
+  :: (FromJSON body, FromJSVal error)
+  => MisoString                      -- ^ url
+  -> [(MisoString, MisoString)]      -- ^ headers
+  -> (Response body -> action)       -- ^ successful callback
+  -> (Response error -> action)      -- ^ errorful callback
+  -> Effect parent model action
+```
+
+Automatically sets `Accept: application/json`. On success the response body is decoded via `FromJSON`. On failure the error callback receives the raw response.
+
+### `postJSON`
+
+Sends a POST request with a JSON-encoded body. Expects no response body.
+
+```haskell
+postJSON
+  :: (FromJSVal error, ToJSON body)
+  => MisoString                      -- ^ url
+  -> body                            -- ^ body
+  -> [(MisoString, MisoString)]      -- ^ headers
+  -> (Response () -> action)         -- ^ successful callback
+  -> (Response error -> action)      -- ^ errorful callback
+  -> Effect parent model action
+```
+
+### `postJSON'`
+
+Sends a POST request with a JSON-encoded body and expects a JSON response.
+
+```haskell
+postJSON'
+  :: (FromJSVal error, ToJSON body, FromJSON return)
+  => MisoString                      -- ^ url
+  -> body                            -- ^ body
+  -> [(MisoString, MisoString)]      -- ^ headers
+  -> (Response return -> action)     -- ^ successful callback
+  -> (Response error -> action)      -- ^ errorful callback
+  -> Effect parent model action
+```
+
+Automatically sets both `Content-Type: application/json` and `Accept: application/json`.
+
+### `putJSON`
+
+Sends a PUT request with a JSON-encoded body. Expects no response body.
+
+```haskell
+putJSON
+  :: (FromJSVal error, ToJSON body)
+  => MisoString
+  -> body
+  -> [(MisoString, MisoString)]
+  -> (Response () -> action)
+  -> (Response error -> action)
+  -> Effect parent model action
+```
+
+## Text
+
+<CodeGroup>
+```haskell getText
+getText
+  :: FromJSVal error
+  => MisoString                       -- ^ url
+  -> [(MisoString, MisoString)]       -- ^ headers
+  -> (Response MisoString -> action)  -- ^ successful callback
+  -> (Response error -> action)       -- ^ errorful callback
+  -> Effect parent model action
+```
+
+```haskell postText
+postText
+  :: FromJSVal error
+  => MisoString
+  -> MisoString                       -- ^ body
+  -> [(MisoString, MisoString)]
+  -> (Response () -> action)
+  -> (Response error -> action)
+  -> Effect parent model action
+```
+
+```haskell putText
+putText
+  :: FromJSVal error
+  => MisoString
+  -> MisoString                       -- ^ body
+  -> [(MisoString, MisoString)]
+  -> (Response () -> action)
+  -> (Response error -> action)
+  -> Effect parent model action
+```
+</CodeGroup>
+
+## Blob
+
+<CodeGroup>
+```haskell getBlob
+getBlob
+  :: FromJSVal error
+  => MisoString
+  -> [(MisoString, MisoString)]
+  -> (Response Blob -> action)
+  -> (Response error -> action)
+  -> Effect parent model action
+```
+
+```haskell postBlob
+postBlob
+  :: FromJSVal error
+  => MisoString
+  -> Blob
+  -> [(MisoString, MisoString)]
+  -> (Response () -> action)
+  -> (Response error -> action)
+  -> Effect parent model action
+```
+
+```haskell putBlob
+putBlob
+  :: FromJSVal error
+  => MisoString
+  -> Blob
+  -> [(MisoString, MisoString)]
+  -> (Response () -> action)
+  -> (Response error -> action)
+  -> Effect parent model action
+```
+</CodeGroup>
+
+## ArrayBuffer and Uint8Array
+
+<CodeGroup>
+```haskell ArrayBuffer
+getArrayBuffer  :: FromJSVal error => MisoString -> [(MisoString, MisoString)] -> (Response ArrayBuffer -> action) -> (Response error -> action) -> Effect parent model action
+postArrayBuffer :: FromJSVal error => MisoString -> ArrayBuffer -> [(MisoString, MisoString)] -> (Response () -> action) -> (Response error -> action) -> Effect parent model action
+putArrayBuffer  :: FromJSVal error => MisoString -> ArrayBuffer -> [(MisoString, MisoString)] -> (Response () -> action) -> (Response error -> action) -> Effect parent model action
+```
+
+```haskell Uint8Array
+getUint8Array  :: FromJSVal error => MisoString -> [(MisoString, MisoString)] -> (Response Uint8Array -> action) -> (Response error -> action) -> Effect parent model action
+postUint8Array :: FromJSVal error => MisoString -> Uint8Array -> [(MisoString, MisoString)] -> (Response () -> action) -> (Response error -> action) -> Effect parent model action
+putUint8Array  :: FromJSVal error => MisoString -> Uint8Array -> [(MisoString, MisoString)] -> (Response () -> action) -> (Response error -> action) -> Effect parent model action
+```
+</CodeGroup>
+
+## Image
+
+```haskell
+postImage :: FromJSVal error => MisoString -> Image -> [(MisoString, MisoString)] -> (Response () -> action) -> (Response error -> action) -> Effect parent model action
+putImage  :: FromJSVal error => MisoString -> Image -> [(MisoString, MisoString)] -> (Response () -> action) -> (Response error -> action) -> Effect parent model action
+```
+
+## FormData
+
+```haskell
+getFormData  :: FromJSVal error => MisoString -> [(MisoString, MisoString)] -> (Response FormData -> action) -> (Response error -> action) -> Effect parent model action
+postFormData :: FromJSVal error => MisoString -> FormData -> [(MisoString, MisoString)] -> (Response () -> action) -> (Response error -> action) -> Effect parent model action
+putFormData  :: FromJSVal error => MisoString -> FormData -> [(MisoString, MisoString)] -> (Response () -> action) -> (Response error -> action) -> Effect parent model action
+```
+
+## Header helpers
+
+Convenience constants for building header lists:
+
+```haskell
+-- Header names
+accept      :: MisoString  -- "Accept"
+contentType :: MisoString  -- "Content-Type"
+
+-- MIME type values
+applicationJSON :: MisoString  -- "application/json"
+textPlain       :: MisoString  -- "text/plain"
+formData        :: MisoString  -- "multipart/form-data"
+octetStream     :: MisoString  -- "application/octet-stream" (internal)
+```
+
+Build headers with the `=:` utility from `Miso.Util`:
+
+```haskell
+[(accept =: applicationJSON, contentType =: applicationJSON)]
+```
+
+User-supplied headers take precedence over any content-specific defaults that a `Miso.Fetch` function sets automatically.
+
+## The `Response` type
+
+`Response` is defined in `Miso.FFI.Internal` and carries both the decoded body and metadata:
+
+```haskell
+data Response body = Response
+  { body         :: body
+  , errorMessage :: Maybe MisoString
+  , ...
+  }
+```
+
+Both the success and error callbacks receive a `Response`, so status codes and error messages are always available even in the error branch.
+
+## Full example: fetching JSON in an update handler
+
+This is the canonical pattern shown in the `getJSON` Haddock documentation:
+
+```haskell
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE LambdaCase        #-}
+module Main where
+
+import Miso
+import Miso.Fetch
+
+-- | The data returned by the GitHub API
+data GitHub = GitHub { login :: MisoString }
+  deriving (Show, Eq)
+
+instance FromJSON GitHub where
+  parseJSON = withObject "GitHub" $ \o -> GitHub <$> o .: "login"
+
+data Action
+  = FetchGitHub
+  | SetGitHub (Response GitHub)
+  | ErrorHandler (Response MisoString)
+  deriving (Show, Eq)
+
+updateModel :: Action -> Effect Model Action
+updateModel = \case
+  FetchGitHub ->
+    getJSON "https://api.github.com" [] SetGitHub ErrorHandler
+  SetGitHub resp ->
+    this .= body resp
+  ErrorHandler err ->
+    io_ (consoleError (maybe "unknown error" id (errorMessage err)))
+```
+
+The `getJSON` call is made directly in the `update` function. It returns an `Effect` that fires the sink with either `SetGitHub` or `ErrorHandler` once the HTTP response arrives.
+
+## Integration with `withSink`
+
+All `Miso.Fetch` functions are built on top of `withSink` from `Miso.Effect`:
+
+```haskell
+getJSON url headers_ successful errorful =
+  withSink $ \sink ->
+    FFI.fetch url "GET" Nothing jsonHeaders
+      (handleJSON sink)
+      (sink . errorful)
+      JSON
+```
+
+This means they compose naturally with other `Effect` values and can be used anywhere an `Effect` is expected.
+
+## Servant integration
+
+For more complex APIs modelled with [Servant](https://haskell-servant.github.io/), use [servant-miso-client](https://github.com/haskell-miso/servant-miso-client) to derive typed client functions automatically.
+
+Add it to your `cabal.project`:
+
+```cabal
+source-repository-package
+  type: git
+  location: https://github.com/haskell-miso/servant-miso-client
+  tag: master
+```
+
+See the [Fetch example](https://github.com/haskell-miso/miso-fetch) ([live demo](https://fetch.haskell-miso.org)) for a complete working application.

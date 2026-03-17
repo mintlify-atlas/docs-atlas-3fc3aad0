@@ -1,0 +1,127 @@
+---
+title: "Architecture overview"
+description: "How miso applications are structured"
+---
+
+miso is a component-oriented Haskell web framework built around the [Elm Architecture](https://elm-lang.org) (MVU — Model, View, Update). Every miso application is a tree of `Component` values, each managing its own state, rendering its own UI, and communicating with other components through a typed hierarchy.
+
+## The three pillars
+
+<CardGroup cols={3}>
+  <Card title="Model" icon="database">
+    Any Haskell type with an `Eq` instance. Holds all state for a component. Starts from an initial value and evolves over time in response to actions.
+  </Card>
+  <Card title="View" icon="eye">
+    A pure function `model -> View model action`. Produces a virtual DOM tree that miso diffs against the real DOM to compute the minimum set of changes.
+  </Card>
+  <Card title="Update" icon="arrows-rotate">
+    A function `action -> Effect parent model action`. Handles every event, mutates the model using monadic state operations, and schedules any required IO.
+  </Card>
+</CardGroup>
+
+## The MVU cycle
+
+Each frame, miso runs the same loop:
+
+```
+model ──► view ──► virtual DOM ──► real DOM
+  ▲                                   │
+  │                                   │ (user event)
+  │                                   ▼
+  └──────── update ◄─────── action dispatched
+```
+
+1. The `view` function converts the current model into a `View` tree.
+2. miso diffs the new virtual DOM against the previous one and patches the real DOM.
+3. Browser events are captured by miso's event delegator and decoded into Haskell `action` values.
+4. `update` receives the action, modifies the model, and optionally schedules IO.
+5. The changed model triggers a new `view` pass.
+
+## `Component` — the core building block
+
+The central type in miso is `Component`:
+
+```haskell
+data Component parent model action
+  = Component
+  { model            :: model
+  , update           :: action -> Effect parent model action
+  , view             :: model -> View model action
+  , subs             :: [Sub action]
+  , styles           :: [CSS]
+  , scripts          :: [JS]
+  , mountPoint       :: Maybe MountPoint
+  , logLevel         :: LogLevel
+  , mailbox          :: Value -> Maybe action
+  , bindings         :: [Binding parent model]
+  , eventPropagation :: Bool
+  , mount            :: Maybe action
+  , unmount          :: Maybe action
+  }
+```
+
+A top-level `App` is just a `Component` whose `parent` is `ROOT` — a phantom type that signals there is no parent:
+
+```haskell
+type App model action = Component ROOT model action
+
+data ROOT
+```
+
+Use the `component` (or its synonym `vcomp`) smart constructor to create a `Component` with sensible defaults:
+
+```haskell
+component
+  :: model
+  -> (action -> Effect parent model action)
+  -> (model -> View model action)
+  -> Component parent model action
+```
+
+## Virtual DOM and event delegation
+
+miso maintains a virtual DOM — a lightweight Haskell representation of the real DOM:
+
+```haskell
+data View model action
+  = VNode Namespace Tag [Attribute action] [View model action]
+  | VText (Maybe Key) MisoString
+  | VComp [Attribute action] (SomeComponent model)
+```
+
+On every model change, miso calls `view`, diffs the resulting tree against the previous one, and applies the minimal patch to the real DOM.
+
+Event listeners are **not** attached individually to DOM elements. Instead, miso attaches a single listener to a top-level element (typically `<body>`) and routes events through the virtual DOM tree to the correct Haskell handler. Both the `capture` and `bubble` phases are supported.
+
+## Compilation targets
+
+miso supports three backends. The same Haskell source code runs on all of them:
+
+<CardGroup cols={3}>
+  <Card title="WebAssembly (WASM)" icon="microchip">
+    Compiled with GHC's WASM backend. Supports hot-reload via WASM browser mode and `ghciwatch`.
+  </Card>
+  <Card title="JavaScript (JS)" icon="js">
+    Compiled with GHC's JavaScript backend (`arch(javascript)`). Targets browsers via Emscripten.
+  </Card>
+  <Card title="Vanilla GHC" icon="h">
+    Runs on standard GHC for server-side rendering (SSR), prerendering, and testing.
+  </Card>
+</CardGroup>
+
+The `MisoString` type adapts automatically: it is `JSString` on JS/WASM backends and `Data.Text` on vanilla GHC.
+
+## Running an application
+
+```haskell
+-- Draws into an empty <body>
+startApp :: Eq model => Events -> App model action -> IO ()
+
+-- Hydrates a server-prerendered <body>
+miso :: Eq model => Events -> (URI -> App model action) -> IO ()
+
+-- Hydrates, ignoring the URI
+prerender :: Eq model => Events -> App model action -> IO ()
+```
+
+`startApp` is the right choice for most client-side applications. `miso` and `prerender` are used when the server has already delivered HTML and the client needs to attach event handlers without a full repaint.

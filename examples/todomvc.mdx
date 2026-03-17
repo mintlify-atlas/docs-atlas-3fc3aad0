@@ -1,0 +1,180 @@
+---
+title: "TodoMVC example"
+description: "A full-featured TodoMVC implementation demonstrating miso's capabilities"
+---
+
+[TodoMVC](https://todomvc.com) is a standardized benchmark application used to compare web frameworks. The miso implementation covers the full feature set: creating, completing, editing, and deleting todos, filtering by status, and persisting state across page reloads via local storage.
+
+<CardGroup cols={2}>
+  <Card title="Live demo" icon="globe" href="https://todomvc.haskell-miso.org">
+    todomvc.haskell-miso.org
+  </Card>
+  <Card title="Source code" icon="github" href="https://github.com/haskell-miso/miso-todomvc">
+    github.com/haskell-miso/miso-todomvc
+  </Card>
+</CardGroup>
+
+## What TodoMVC demonstrates
+
+The TodoMVC example is a practical reference for these miso patterns:
+
+- **CRUD operations** — creating, reading, updating, and deleting items from a list.
+- **Conditional rendering** — showing and hiding the footer, the toggle-all checkbox, and the clear-completed button based on the current model.
+- **List diffing** — miso's virtual DOM reconciler efficiently patches only the changed list items rather than re-rendering the full list.
+- **Filter state** — the active URL fragment drives which subset of todos is displayed, demonstrating simple client-side routing.
+- **Local storage persistence** — the model is serialized to JSON and stored in `localStorage` so state survives page reloads.
+
+## Model structure
+
+The application model holds everything needed to render the UI:
+
+```haskell
+data Model = Model
+  { todos     :: [Todo]     -- the list of todo items
+  , field     :: MisoString -- current value of the new-todo input
+  , uid       :: Int        -- auto-incrementing id for new todos
+  , visibility :: Filter    -- which subset of todos to show
+  } deriving (Show, Eq)
+
+data Todo = Todo
+  { description :: MisoString  -- the todo text
+  , completed   :: Bool         -- whether it has been checked off
+  , editing     :: Bool         -- whether the inline editor is open
+  , todoId      :: Int          -- stable identifier
+  } deriving (Show, Eq)
+
+data Filter
+  = All
+  | Active
+  | Completed
+  deriving (Show, Eq)
+```
+
+- `todos` is the authoritative list. All filtering is computed from this list on each render — no secondary derived list is stored in the model.
+- `field` tracks the live value of the new-todo `<input>` element.
+- `uid` is incremented each time a todo is added, giving every item a stable identity for the virtual DOM differ.
+- `visibility` reflects the current URL fragment (`#/`, `#/active`, `#/completed`).
+
+## Action types
+
+Every user interaction is expressed as a constructor of `Action`:
+
+```haskell
+data Action
+  = NoOp
+  | UpdateField MisoString       -- user typing in the new-todo input
+  | EditingTodo Int Bool         -- open or close the inline editor for a todo
+  | UpdateTodo Int MisoString    -- update the text of a todo being edited
+  | Add                          -- submit the new-todo input
+  | Delete Int                   -- remove a todo by id
+  | DeleteComplete               -- remove all completed todos
+  | Check Int Bool               -- toggle the completed flag of a single todo
+  | CheckAll Bool                -- toggle all todos at once
+  | ChangeVisibility Filter      -- switch the active filter
+  deriving (Show, Eq)
+```
+
+Keeping all mutations in one flat sum type makes it straightforward to audit every state transition and to add logging or time-travel debugging.
+
+## View structure
+
+The view is split into three logical sections that map directly to the TodoMVC HTML specification:
+
+### Header
+
+The header contains the application title and the new-todo input field. Pressing Enter dispatches `Add`, which appends a new `Todo` to the list and clears `field`.
+
+```haskell
+viewInput :: MisoString -> View Action
+viewInput task =
+  header_ [ class_ "header" ]
+    [ h1_ [] [ text "todos" ]
+    , input_
+        [ class_ "new-todo"
+        , placeholder_ "What needs to be done?"
+        , autofocus_ True
+        , value_ task
+        , onInput UpdateField
+        , onEnter Add
+        ]
+    ]
+```
+
+### Todo list
+
+The main section renders the toggle-all checkbox and the filtered list of items. Each item is its own view function that handles the editing state:
+
+```haskell
+viewEntry :: Todo -> View Action
+viewEntry todo =
+  li_ [ class_ $ if completed todo then "completed" else ""
+        <> if editing todo then " editing" else ""
+      ]
+    [ div_ [ class_ "view" ]
+        [ input_
+            [ class_ "toggle"
+            , type_ "checkbox"
+            , checked_ (completed todo)
+            , onClick (Check (todoId todo) (not (completed todo)))
+            ]
+        , label_ [ onDoubleClick (EditingTodo (todoId todo) True) ]
+            [ text (description todo) ]
+        , button_ [ class_ "destroy", onClick (Delete (todoId todo)) ] []
+        ]
+    , input_
+        [ class_ "edit"
+        , value_ (description todo)
+        , onBlur (EditingTodo (todoId todo) False)
+        , onInput (UpdateTodo (todoId todo))
+        , onEnter (EditingTodo (todoId todo) False)
+        ]
+    ]
+```
+
+### Footer
+
+The footer shows the active item count, the three filter links, and the clear-completed button. It is only rendered when at least one todo exists.
+
+## Local storage persistence
+
+State is saved to and loaded from `localStorage` using the `Miso.Storage` module:
+
+```haskell
+import Miso.Storage (getLocalStorage, setLocalStorage)
+```
+
+**Saving** — after every model update the new model is serialized to JSON and written to a fixed key:
+
+```haskell
+saveModel :: Model -> IO ()
+saveModel m = setLocalStorage "todos-miso" m
+```
+
+**Loading** — the initial model is read from storage when the application starts. If no stored value exists, or if deserialization fails, `emptyModel` is used as a fallback:
+
+```haskell
+getSavedModel :: IO Model
+getSavedModel = do
+  result <- getLocalStorage "todos-miso"
+  pure $ case result of
+    Right m -> m
+    Left _  -> emptyModel
+```
+
+Because `getLocalStorage` and `setLocalStorage` are ordinary `IO` actions, they integrate naturally with miso's `Effect` system via `io` and `io_`.
+
+<Note>
+  `Miso.Storage` uses the browser's `localStorage` API. Data is scoped to the origin and persists indefinitely until cleared by the user or the application.
+</Note>
+
+## Key takeaways
+
+| Pattern | Where to look |
+|---|---|
+| Real-world state management | `Model` and `updateModel` |
+| Conditional rendering | Footer visibility, toggle-all checkbox |
+| Efficient list diffing | `viewEntry` keyed by `todoId` |
+| Filter / routing state | `ChangeVisibility` action and `Filter` type |
+| Local storage persistence | `getLocalStorage` / `setLocalStorage` calls in `main` |
+
+The full source at [github.com/haskell-miso/miso-todomvc](https://github.com/haskell-miso/miso-todomvc) is the most complete reference for these patterns.

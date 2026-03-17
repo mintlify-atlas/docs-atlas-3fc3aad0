@@ -1,0 +1,156 @@
+---
+title: "Model-View-Update"
+description: "The MVU pattern at the heart of every miso application"
+---
+
+Miso's programming model is a direct expression of the [Elm Architecture](https://elm-lang.org). Every application is a pure function from state to UI, with side effects isolated in the `Effect` type.
+
+## The model
+
+The model is any Haskell type you define. The only constraint is an `Eq` instance so miso can detect when state has changed and avoid unnecessary redraws.
+
+```haskell
+-- A simple counter — the model is just an Int
+type Model = Int
+
+-- A more complex model
+data Model = Model
+  { count   :: Int
+  , message :: MisoString
+  } deriving (Show, Eq)
+```
+
+<Note>
+  miso recommends using the derived `Eq` instance. Custom `Eq` instances that return `True` too eagerly will prevent updates from being rendered.
+</Note>
+
+## The view function
+
+The view function is a pure function from model to `View`:
+
+```haskell
+view :: model -> View model action
+```
+
+`View` is a rose-tree structure — the virtual DOM:
+
+```haskell
+data View model action
+  = VNode Namespace Tag [Attribute action] [View model action]
+  | VText (Maybe Key) MisoString
+  | VComp [Attribute action] (SomeComponent model)
+```
+
+HTML element smart constructors (like `div_`, `button_`, `p_`) build `VNode` values. Text nodes are created with `text`. Because `View` is a Functor, you can `fmap` over actions.
+
+## The update function
+
+The update function handles every action and returns an `Effect`:
+
+```haskell
+update :: action -> Effect parent model action
+```
+
+`Effect` is a monad that combines:
+- **State** — modify the model with `put`, `modify`, or lens operators
+- **Writer** — schedule IO actions for the miso scheduler
+- **Reader** — access `ComponentInfo` (the component's ID, parent ID, and DOM reference)
+
+<Note>
+  There is no `MonadIO` instance for `Effect`. IO is never evaluated inside `Effect` — it is only scheduled for the miso runtime to run later.
+</Note>
+
+## Complete counter example
+
+This is the canonical miso counter, taken directly from the library's haddock documentation:
+
+```haskell
+module Main where
+
+import Miso
+import Miso.Lens
+import qualified Miso.Html.Element   as H
+import qualified Miso.Html.Event     as HE
+import qualified Miso.Html.Property  as HP
+
+--                      * - The type of the parent Component 'model'
+--                      |     * - The type of the current Component's 'model'
+--                      |     |    * - The type of the action that updates the 'model'
+--                      |     |    |
+counter :: Component parent Int Action
+counter = vcomp m u v
+  where
+    m :: Int
+    m = 0
+
+    u :: Action -> Effect parent Int Action
+    u = \case
+      Add      -> this += 1
+      Subtract -> this -= 1
+
+    v :: Int -> View Int Action
+    v x = H.div_
+      [ H.button_ [ HE.onClick Add,      HP.id_ "add"      ] [ "+" ]
+      , text (ms x)
+      , H.button_ [ HE.onClick Subtract, HP.id_ "subtract" ] [ "-" ]
+      ]
+
+main :: IO ()
+main = startApp defaultEvents counter
+
+data Action
+  = Add
+  | Subtract
+  deriving (Eq, Show)
+```
+
+## The MVU cycle in detail
+
+<Steps>
+  <Step title="Initial render">
+    `startApp` calls `view` with the initial model and draws the result into `<body>`.
+  </Step>
+  <Step title="Event raised">
+    The user interacts with the page. miso's event delegator captures the browser event and routes it to the matching Haskell handler, which decodes it into an `action` value (e.g. `Add`).
+  </Step>
+  <Step title="Update called">
+    The runtime calls `update action currentModel`. The `Effect` monad accumulates state mutations and any scheduled IO.
+  </Step>
+  <Step title="Model updated">
+    The state mutations are applied, producing a new model. If it differs from the previous model (`Eq` check), the view is recomputed.
+  </Step>
+  <Step title="Diff and patch">
+    miso diffs the new virtual DOM against the old one and applies the minimum set of DOM operations.
+  </Step>
+  <Step title="IO runs">
+    Scheduled IO actions are handed to the miso scheduler and run asynchronously (or synchronously, if `sync` was used).
+  </Step>
+</Steps>
+
+## Pure by default, IO via Effect
+
+Miso is pure by default. Side effects are introduced exclusively through the `Effect` type:
+
+```haskell
+-- Logging without dispatching a new action
+updateModel :: Action -> Effect parent Int Action
+updateModel = \case
+  AddOne        -> this += 1
+  SubtractOne   -> this -= 1
+  SayHelloWorld -> io_ $ do
+    alert "Hello World"
+    consoleLog "Hello World"
+```
+
+`io_` schedules an `IO ()` action asynchronously. The model is not modified. The scheduler runs the action after the current render cycle.
+
+## Comparison with React
+
+| Concept | miso | React |
+|---|---|---|
+| State | `model` — a plain Haskell value | `useState` / class `state` |
+| Rendering | `view :: model -> View model action` | `render()` / JSX function component |
+| Events | Decoded `action` values, handled in `update` | Event handlers with `setState` |
+| Side effects | `Effect` monad (scheduled, explicit) | `useEffect` (implicit, by dependency list) |
+| Purity | Enforced — no `MonadIO` in `Effect` | Conventional — nothing stops imperative code |
+| Component nesting | `(+>)` combinator, typed parent-child hierarchy | JSX element composition |

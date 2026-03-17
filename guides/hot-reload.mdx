@@ -1,0 +1,116 @@
+---
+title: "Hot reload"
+description: "Fast development iteration with WASM browser mode and ghciwatch"
+---
+
+Miso supports hot reload through [WASM browser mode](https://www.tweag.io/blog/2025-04-17-wasm-ghci-browser/) — a feature of the GHC WASM backend that runs GHCi inside the browser tab. When combined with [ghciwatch](https://github.com/MercuryTechnologies/ghciwatch), file changes trigger immediate recompilation and the updated application is reflected in the browser without a full page reload.
+
+<Note>
+  Hot reload in miso uses the **WASM backend only**. The GHCJS (JavaScript) backend does not support GHCi browser mode.
+</Note>
+
+## Requirements
+
+- **GHC WASM backend** — acquired via `nix develop .#wasm` from miso's flake (see [Nix](/guides/nix))
+- **ghciwatch** — included in the WASM dev shell
+- **miso-sampler** — the template repository with ready-made build scripts
+
+## Setup
+
+<Steps>
+  <Step title="Install Nix and enable flakes">
+    ```bash
+    curl -L https://nixos.org/nix/install | sh
+    echo 'experimental-features = nix-command flakes' >> ~/.config/nix/config.nix
+    ```
+  </Step>
+  <Step title="Clone the miso-sampler template">
+    ```bash
+    git clone https://github.com/haskell-miso/miso-sampler
+    cd miso-sampler
+    ```
+
+    `miso-sampler` is the official template repository. It includes a `Makefile` with build targets for WASM, GHCJS, and GHC.
+  </Step>
+  <Step title="Enter the WASM dev shell">
+    ```bash
+    nix develop .#wasm
+    ```
+
+    This shell provides the GHC WASM 9.12.2 toolchain, `ghciwatch`, `bun`, `http-server`, and `cabal-install`.
+  </Step>
+  <Step title="Start hot reload">
+    The WASM shell exposes a `repl-watch` function:
+
+    ```bash
+    repl-watch
+    ```
+
+    This runs:
+
+    ```bash
+    ghciwatch \
+      --after-reload-ghci :main \
+      --watch . \
+      --debounce 50ms \
+      --command 'wasm32-wasi-cabal repl app -finteractive \
+        --repl-options="-fghci-browser -fghci-browser-port=8080"'
+    ```
+
+    `ghciwatch` watches all files in the current directory. When a Haskell source file changes, it reloads GHCi and calls `:main`, which re-runs the miso application in the browser.
+  </Step>
+  <Step title="Open the browser">
+    Navigate to `http://localhost:8080`. Changes to your `.hs` files will be reflected automatically after each save.
+  </Step>
+</Steps>
+
+## How it works
+
+The GHC WASM backend includes a special GHCi mode (`-fghci-browser`) that compiles Haskell to WASM and executes it directly inside a browser tab over a WebSocket connection. Instead of a full compile-link-bundle cycle, GHCi loads only changed modules.
+
+`ghciwatch` coordinates the outer loop:
+1. Watches the filesystem for changes
+2. Sends a reload command to the running GHCi session
+3. Runs `:main` after each successful reload
+
+The `--debounce 50ms` flag prevents rapid successive saves from triggering multiple reloads.
+
+## Shell functions
+
+The WASM dev shell defines several convenience functions:
+
+```bash
+# Full WASM build (no hot reload)
+build
+
+# Standard GHCi session in the browser (single session, no file watching)
+repl
+
+# GHCi + ghciwatch (hot reload)
+repl-watch
+
+# Clean build artifacts
+clean
+
+# Update package index
+update
+```
+
+## Production builds
+
+Hot reload is a **development-only** workflow. For production, build the full WASM bundle:
+
+```bash
+build
+make serve
+```
+
+<Warning>
+  The `-fghci-browser` flag must not be used in production builds. It opens a WebSocket control channel that is only appropriate during development.
+</Warning>
+
+## Further reading
+
+- [WASM GHCi browser mode](https://www.tweag.io/blog/2025-04-17-wasm-ghci-browser/) — Tweag blog post explaining the underlying technology
+- [miso-sampler README](https://github.com/haskell-miso/miso-sampler) — browser mode section with step-by-step instructions
+- [ghciwatch](https://github.com/MercuryTechnologies/ghciwatch) — the file watcher used to drive reload

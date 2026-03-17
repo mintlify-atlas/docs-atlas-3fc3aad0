@@ -1,0 +1,257 @@
+---
+title: "Subscriptions"
+description: "Reacting to external events with miso subscriptions"
+---
+
+A subscription lets a `Component` react to events that originate outside the `update` function — browser events, timers, WebSockets, or any other `IO` source.
+
+## What a `Sub` is
+
+```haskell
+-- | A long-running operation that can write to a Component's event queue.
+type Sub action = Sink action -> IO ()
+
+-- | A function that writes an action to the global event queue.
+type Sink action = action -> IO ()
+```
+
+A `Sub` is a function that receives a `Sink` and performs some long-running `IO`. Whenever it wants to update the application model, it calls the sink with an action value. That action is then processed by the `update` function on the next scheduler tick.
+
+## Declaring subscriptions
+
+Attach subscriptions to a `Component` through the `subs` field:
+
+```haskell
+app :: App Model Action
+app = (component initialModel update view)
+  { subs =
+      [ uriSub    URIChanged
+      , arrowsSub ArrowsChanged
+      , onLineSub ConnectionChanged
+      ]
+  }
+```
+
+All `subs` start when the component mounts and stop (with resources finalized) when it unmounts.
+
+### Dynamic subscriptions
+
+When you need to start or stop a subscription in response to an action, use `startSub` and `stopSub` inside an `Effect`:
+
+```haskell
+update :: Action -> Effect parent Model Action
+update = \case
+  Connect    -> startSub ("websocket" :: MisoString) myWebSocketSub
+  Disconnect -> stopSub "websocket"
+```
+
+## Built-in subscriptions
+
+### History — `Miso.Subscription.History`
+
+```haskell
+-- | Fires on every popstate event with the current URI.
+uriSub :: (URI -> action) -> Sub action
+
+-- | Like uriSub, but parses the URI through a Router instance.
+routerSub :: Router route => (Either RoutingError route -> action) -> Sub action
+```
+
+```haskell
+data Action = URIChanged URI
+
+subs :: [Sub Action]
+subs = [ uriSub URIChanged ]
+```
+
+See [Client-side routing](/concepts/routing) for the full routing guide.
+
+### Keyboard — `Miso.Subscription.Keyboard`
+
+```haskell
+-- | Fires with the set of currently pressed key codes.
+keyboardSub :: (IntSet -> action) -> Sub action
+
+-- | Fires with an Arrows value derived from arrow key codes.
+arrowsSub :: (Arrows -> action) -> Sub action
+
+-- | Like arrowsSub, but uses W/A/S/D key codes.
+wasdSub :: (Arrows -> action) -> Sub action
+```
+
+The `Arrows` type encodes directional intent as a pair of `Int` values in `{-1, 0, 1}`:
+
+```haskell
+data Arrows = Arrows
+  { arrowX :: !Int  -- -1 left, 0 neutral, 1 right
+  , arrowY :: !Int  -- -1 down, 0 neutral, 1 up
+  }
+```
+
+<CodeGroup>
+
+```haskell arrowsSub example
+data Action = ArrowsChanged Arrows
+
+subs :: [Sub Action]
+subs = [ arrowsSub ArrowsChanged ]
+
+update :: Action -> Effect parent Model Action
+update = \case
+  ArrowsChanged arrows -> modify $ \m ->
+    m { playerX = playerX m + arrowX arrows
+      , playerY = playerY m + arrowY arrows
+      }
+```
+
+```haskell keyboardSub example
+import Data.IntSet (IntSet)
+import qualified Data.IntSet as S
+
+data Action = KeysChanged IntSet
+
+subs :: [Sub Action]
+subs = [ keyboardSub KeysChanged ]
+
+update :: Action -> Effect parent Model Action
+update = \case
+  KeysChanged keys
+    | S.member 32 keys -> -- space bar pressed
+        modify (\m -> m { jumping = True })
+    | otherwise -> pure ()
+```
+
+</CodeGroup>
+
+<Note>
+`keyboardSub` tracks a set of simultaneously pressed keys and clears it automatically when the window loses focus, so keys never get "stuck".
+</Note>
+
+### Mouse — `Miso.Subscription.Mouse`
+
+```haskell
+-- | Fires with a PointerEvent on every pointermove event on the window.
+mouseSub :: (PointerEvent -> action) -> Sub action
+```
+
+`PointerEvent` contains pointer coordinates and metadata decoded from the browser's `pointermove` event:
+
+```haskell
+data Action = MouseMoved PointerEvent
+
+subs :: [Sub Action]
+subs = [ mouseSub MouseMoved ]
+```
+
+### Window — `Miso.Subscription.Window`
+
+```haskell
+-- | Subscribe to any window-level event by name, with a custom Decoder.
+windowSub
+  :: MisoString
+  -- ^ Event name (e.g. "resize", "scroll")
+  -> Decoder r
+  -- ^ Decoder for the event payload
+  -> (r -> action)
+  -> Sub action
+
+-- | Subscribe to pointermove events, delivering Coord values (client x/y).
+windowCoordsSub :: (Coord -> action) -> Sub action
+
+-- | Subscribe to pointermove events, delivering PointerEvent values.
+windowPointerMoveSub :: (PointerEvent -> action) -> Sub action
+
+-- | Like windowSub but with custom stopPropagation / preventDefault options.
+windowSubWithOptions :: Options -> MisoString -> Decoder r -> (r -> action) -> Sub action
+```
+
+```haskell
+data Action = PointerMoved Coord
+
+subs :: [Sub Action]
+subs = [ windowCoordsSub PointerMoved ]
+```
+
+### Online status — `Miso.Subscription.OnLine`
+
+```haskell
+-- | Fires True when the browser goes online, False when it goes offline.
+-- Uses the navigator.onLine API.
+onLineSub :: (Bool -> action) -> Sub action
+```
+
+```haskell
+data Action = ConnectionChanged Bool
+
+subs :: [Sub Action]
+subs = [ onLineSub ConnectionChanged ]
+
+update :: Action -> Effect parent Model Action
+update = \case
+  ConnectionChanged online ->
+    modify $ \m -> m { isOnline = online }
+```
+
+## Transforming subscriptions with `mapSub`
+
+`mapSub` lifts a function `a -> b` over a `Sub a` to produce a `Sub b`. This is useful when composing components that use different action types:
+
+```haskell
+mapSub :: (a -> b) -> Sub a -> Sub b
+mapSub f sub = \g -> sub (g . f)
+```
+
+```haskell
+data ParentAction = Child ChildAction | ...
+data ChildAction  = ArrowsChanged Arrows
+
+parentSubs :: [Sub ParentAction]
+parentSubs = [ mapSub Child (arrowsSub ArrowsChanged) ]
+```
+
+## Writing a custom subscription
+
+Use `createSub` from `Miso.Subscription.Util` to write subscriptions that register and unregister event listeners safely:
+
+```haskell
+create :: acquire -> release -> Sink action -> IO ()
+```
+
+The pattern follows `bracket`: `acquire` registers listeners and returns a handle; `release` receives that handle and unregisters the listeners. The miso runtime calls `release` automatically when the component unmounts.
+
+Here is the `onLineSub` implementation from the source, which shows the pattern:
+
+```haskell
+onLineSub :: (Bool -> action) -> Sub action
+onLineSub f sink = createSub acquire release sink
+  where
+    release (cb1, cb2) = do
+      FFI.windowRemoveEventListener "online" cb1
+      FFI.windowRemoveEventListener "offline" cb2
+    acquire = do
+      cb1 <- FFI.windowAddEventListener "online" (\_ -> sink (f True))
+      cb2 <- FFI.windowAddEventListener "offline" (\_ -> sink (f False))
+      pure (cb1, cb2)
+```
+
+For a timer-based example that does not use `createSub`:
+
+```haskell
+import Control.Concurrent (threadDelay)
+import Control.Monad (forever)
+
+data Action = Tick
+
+timerSub :: Sub Action
+timerSub sink = forever $ do
+  threadDelay 1000000  -- 1 second
+  sink Tick
+
+app :: App Model Action
+app = (component initialModel update view)
+  { subs = [ timerSub ] }
+```
+
+<Warning>
+Custom subscriptions run in their own thread. If you use `forever`, ensure that any cleanup (file handles, network connections) is handled via `createSub` so it runs when the component unmounts. A bare `forever` loop will continue until the process exits.
+</Warning>

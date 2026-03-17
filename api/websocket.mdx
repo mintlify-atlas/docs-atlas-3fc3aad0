@@ -1,0 +1,244 @@
+---
+title: "Miso.WebSocket"
+description: "WebSocket support for real-time communication"
+---
+
+`Miso.WebSocket` provides a typed interface to the browser [WebSocket API](https://developer.mozilla.org/en-US/docs/Web/API/WebSocket). Connections are managed by the miso runtime and cleaned up automatically when a component unmounts.
+
+## Types
+
+```haskell
+-- | A WebSocket file descriptor (opaque integer handle)
+newtype WebSocket = WebSocket Int
+
+-- | A null/uninitialized WebSocket
+emptyWebSocket :: WebSocket
+
+-- | WebSocket URL (alias for MisoString)
+type URL = MisoString
+
+-- | Current connection state
+data SocketState
+  = CONNECTING  -- ^ 0: connection in progress
+  | OPEN        -- ^ 1: connection established
+  | CLOSING     -- ^ 2: connection closing
+  | CLOSED      -- ^ 3: connection closed
+  deriving (Show, Eq, Ord, Enum)
+
+-- | Information about a closed connection
+data Closed = Closed
+  { closedCode :: CloseCode
+  , wasClean   :: Bool
+  , reason     :: MisoString
+  } deriving (Eq, Show)
+
+-- | WebSocket close codes per RFC 6455
+data CloseCode
+  = CLOSE_NORMAL
+  | CLOSE_GOING_AWAY
+  | CLOSE_PROTOCOL_ERROR
+  | CLOSE_UNSUPPORTED
+  | CLOSE_NO_STATUS
+  | CLOSE_ABNORMAL
+  | Unsupported_Data
+  | Policy_Violation
+  | CLOSE_TOO_LARGE
+  | Missing_Extension
+  | Internal_Error
+  | Service_Restart
+  | Try_Again_Later
+  | TLS_Handshake
+  | OtherCode Int
+  deriving (Show, Eq)
+
+-- | Payload variants for mixed-protocol connections
+data Payload value
+  = JSON value
+  | BLOB Blob
+  | TEXT MisoString
+  | BUFFER ArrayBuffer
+```
+
+## Connecting
+
+### JSON Protocol
+
+```haskell
+-- | Connect with a JSON-encoded protocol.
+-- onMessage receives decoded Haskell values.
+connectJSON
+  :: FromJSON json
+  => URL
+  -> (WebSocket  -> action)  -- ^ onOpen
+  -> (Closed     -> action)  -- ^ onClosed
+  -> (json       -> action)  -- ^ onMessage
+  -> (MisoString -> action)  -- ^ onError
+  -> Effect parent model action
+```
+
+### Text Protocol
+
+```haskell
+-- | Connect with a plain-text protocol.
+connectText
+  :: URL
+  -> (WebSocket  -> action)  -- ^ onOpen
+  -> (Closed     -> action)  -- ^ onClosed
+  -> (MisoString -> action)  -- ^ onMessage
+  -> (MisoString -> action)  -- ^ onError
+  -> Effect parent model action
+```
+
+### Binary Protocols
+
+```haskell
+-- | Connect expecting Blob messages
+connectBLOB
+  :: URL
+  -> (WebSocket  -> action)
+  -> (Closed     -> action)
+  -> (Blob       -> action)
+  -> (MisoString -> action)
+  -> Effect parent model action
+
+-- | Connect expecting ArrayBuffer messages
+connectArrayBuffer
+  :: URL
+  -> (WebSocket  -> action)
+  -> (Closed     -> action)
+  -> (ArrayBuffer -> action)
+  -> (MisoString  -> action)
+  -> Effect parent model action
+```
+
+### Mixed Protocol
+
+```haskell
+-- | Connect with a mixed payload protocol.
+-- Useful when the server sends JSON, Blobs, or text in the same connection.
+connect
+  :: FromJSON json
+  => URL
+  -> (WebSocket      -> action)  -- ^ onOpen
+  -> (Closed         -> action)  -- ^ onClosed
+  -> (Payload json   -> action)  -- ^ onMessage
+  -> (MisoString     -> action)  -- ^ onError
+  -> Effect parent model action
+```
+
+## Sending
+
+```haskell
+-- | Send a JSON-encoded value
+sendJSON
+  :: ToJSON json
+  => WebSocket
+  -> json
+  -> Effect parent model action
+
+-- | Send a text message
+sendText
+  :: WebSocket
+  -> MisoString
+  -> Effect parent model action
+
+-- | Send a Blob
+sendBLOB
+  :: WebSocket
+  -> Blob
+  -> Effect parent model action
+
+-- | Send an ArrayBuffer
+sendArrayBuffer
+  :: WebSocket
+  -> ArrayBuffer
+  -> Effect parent model action
+```
+
+## Closing
+
+```haskell
+-- | Close the WebSocket connection.
+-- This is a no-op if called multiple times.
+close :: WebSocket -> Effect parent model action
+```
+
+<Warning>
+  Always close your WebSocket when it is no longer needed. Leaving connections open causes resource leaks. The miso runtime will close connections when a component unmounts, but explicit `close` calls are recommended.
+</Warning>
+
+## Query State
+
+```haskell
+-- | Retrieve the current SocketState of a WebSocket connection
+socketState
+  :: WebSocket
+  -> (SocketState -> action)
+  -> Effect parent model action
+```
+
+If the `WebSocket` handle does not exist (e.g. never connected), `CLOSED` is returned.
+
+## Full Example
+
+```haskell
+module Main where
+
+import Miso
+import Miso.WebSocket
+import Miso.String (MisoString, ms)
+
+data Msg = Msg { text :: MisoString }
+  deriving (Show, Eq)
+
+instance FromJSON Msg where
+  parseJSON = withObject "Msg" $ \o -> Msg <$> o .: "text"
+
+instance ToJSON Msg where
+  toJSON (Msg t) = object [ "text" .= t ]
+
+data Model = Model
+  { socket   :: WebSocket
+  , messages :: [MisoString]
+  }
+
+data Action
+  = Connect
+  | Connected    WebSocket
+  | Disconnected Closed
+  | Received     Msg
+  | SendMsg      MisoString
+  | Error        MisoString
+
+initialModel :: Model
+initialModel = Model emptyWebSocket []
+
+updateModel :: Action -> Effect Model Action
+updateModel = \case
+  Connect ->
+    connectJSON "wss://example.com/chat"
+      Connected Disconnected Received Error
+
+  Connected ws -> do
+    socket .= ws
+
+  Disconnected closed ->
+    io_ $ consoleLog ("Closed: " <> reason closed)
+
+  Received msg ->
+    messages %= (text msg :)
+
+  SendMsg txt -> do
+    ws <- use socket
+    sendJSON ws (Msg txt)
+
+  Error err ->
+    io_ $ consoleError err
+
+viewModel :: Model -> View Action
+viewModel Model{..} =
+  div_ []
+    [ button_ [ onClick Connect ] [ "Connect" ]
+    , ul_ [] $ map (\m -> li_ [] [ text m ]) messages
+    ]
+```

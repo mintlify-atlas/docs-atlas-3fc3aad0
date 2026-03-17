@@ -1,0 +1,371 @@
+---
+title: "HTML elements"
+description: "All HTML element constructors in Miso.Html.Element"
+---
+
+`Miso.Html.Element` provides a constructor for every standard HTML element. All constructors follow a consistent naming convention and type signature.
+
+## Naming convention
+
+Every element constructor is the lowercase HTML tag name followed by an underscore. The underscore avoids conflicts with Haskell keywords (`data_`, `map_`, `type_`, etc.) and Prelude functions (`head_`, `main_`).
+
+```haskell
+div_  -- <div>
+span_ -- <span>
+p_    -- <p>
+```
+
+## Type signatures
+
+Most elements accept attributes and children:
+
+```haskell
+div_ :: [Attribute action] -> [View model action] -> View model action
+```
+
+Void elements (those that can never have children in HTML) accept only attributes and return a `View` directly:
+
+```haskell
+input_  :: [Attribute action] -> View model action
+img_    :: [Attribute action] -> View model action
+br_     :: [Attribute action] -> View model action
+hr_     :: [Attribute action] -> View model action
+meta_   :: [Attribute action] -> View model action
+link_   :: [Attribute action] -> View model action
+source_ :: [Attribute action] -> View model action
+track_  :: [Attribute action] -> View model action
+embed_  :: [Attribute action] -> View model action
+wbr_    :: [Attribute action] -> View model action
+col_    :: [Attribute action] -> View model action
+```
+
+Two elements have a unique signature because they wrap raw text directly:
+
+```haskell
+style_  :: [Attribute action] -> MisoString -> View model action
+script_ :: [Attribute action] -> MisoString -> View model action
+```
+
+The doctype pseudo-element takes no arguments:
+
+```haskell
+doctype_ :: View model action
+```
+
+<Warning>
+`style_` and `script_` accept raw text and do **not** escape it. Only pass trusted content. Untrusted content may lead to CSS injection or XSS.
+</Warning>
+
+## Low-level constructor
+
+All element functions are defined in terms of `nodeHtml`:
+
+```haskell
+nodeHtml :: MisoString -> [Attribute action] -> [View model action] -> View model action
+nodeHtml nodeName = node HTML nodeName
+```
+
+Use `nodeHtml` to build custom or non-standard HTML elements.
+
+## Document metadata
+
+```haskell
+html_     :: [Attribute action] -> [View model action] -> View model action
+head_     :: [Attribute action] -> [View model action] -> View model action
+body_     :: [Attribute action] -> [View model action] -> View model action
+title_    :: [Attribute action] -> [View model action] -> View model action
+base_     :: [Attribute action] -> [View model action] -> View model action
+meta_     :: [Attribute action] -> View model action
+link_     :: [Attribute action] -> View model action
+style_    :: [Attribute action] -> MisoString -> View model action
+script_   :: [Attribute action] -> MisoString -> View model action
+doctype_  :: View model action
+```
+
+```haskell
+view :: View model action
+view = html_ []
+  [ head_ []
+    [ title_ [] [ "My App" ]
+    , link_ [ rel_ "stylesheet", href_ "/style.css" ]
+    , meta_ [ charset_ "utf-8" ]
+    ]
+  , body_ [] [ text "Hello" ]
+  ]
+```
+
+## Content sectioning
+
+```haskell
+header_  :: [Attribute action] -> [View model action] -> View model action
+footer_  :: [Attribute action] -> [View model action] -> View model action
+nav_     :: [Attribute action] -> [View model action] -> View model action
+main_    :: [Attribute action] -> [View model action] -> View model action
+article_ :: [Attribute action] -> [View model action] -> View model action
+section_ :: [Attribute action] -> [View model action] -> View model action
+aside_   :: [Attribute action] -> [View model action] -> View model action
+address_ :: [Attribute action] -> [View model action] -> View model action
+hgroup_  :: [Attribute action] -> [View model action] -> View model action
+search_  :: [Attribute action] -> [View model action] -> View model action
+```
+
+```haskell
+page :: View model action
+page = div_ []
+  [ header_ [ class_ "site-header" ] [ nav_ [] [ a_ [ href_ "/" ] [ "Home" ] ] ]
+  , main_ [] [ article_ [] [ section_ [] [ p_ [] [ "Content" ] ] ] ]
+  , footer_ [] [ "© 2026" ]
+  ]
+```
+
+## Headings
+
+```haskell
+h1_ :: [Attribute action] -> [View model action] -> View model action
+h2_ :: [Attribute action] -> [View model action] -> View model action
+h3_ :: [Attribute action] -> [View model action] -> View model action
+h4_ :: [Attribute action] -> [View model action] -> View model action
+h5_ :: [Attribute action] -> [View model action] -> View model action
+h6_ :: [Attribute action] -> [View model action] -> View model action
+```
+
+## Text content
+
+```haskell
+p_          :: [Attribute action] -> [View model action] -> View model action
+span_       :: [Attribute action] -> [View model action] -> View model action
+strong_     :: [Attribute action] -> [View model action] -> View model action
+em_         :: [Attribute action] -> [View model action] -> View model action
+a_          :: [Attribute action] -> [View model action] -> View model action
+br_         :: [Attribute action] -> View model action
+hr_         :: [Attribute action] -> View model action
+blockquote_ :: [Attribute action] -> [View model action] -> View model action
+pre_        :: [Attribute action] -> [View model action] -> View model action
+code_       :: [Attribute action] -> [View model action] -> View model action
+small_      :: [Attribute action] -> [View model action] -> View model action
+cite_       :: [Attribute action] -> [View model action] -> View model action
+dfn_        :: [Attribute action] -> [View model action] -> View model action
+abbr_       :: [Attribute action] -> [View model action] -> View model action
+time_       :: [Attribute action] -> [View model action] -> View model action
+var_        :: [Attribute action] -> [View model action] -> View model action
+samp_       :: [Attribute action] -> [View model action] -> View model action
+kbd_        :: [Attribute action] -> [View model action] -> View model action
+mark_       :: [Attribute action] -> [View model action] -> View model action
+sub_        :: [Attribute action] -> [View model action] -> View model action
+sup_        :: [Attribute action] -> [View model action] -> View model action
+b_          :: [Attribute action] -> [View model action] -> View model action
+i_          :: [Attribute action] -> [View model action] -> View model action
+u_          :: [Attribute action] -> [View model action] -> View model action
+q_          :: [Attribute action] -> [View model action] -> View model action
+s_          :: [Attribute action] -> [View model action] -> View model action
+bdi_        :: [Attribute action] -> [View model action] -> View model action
+bdo_        :: [Attribute action] -> [View model action] -> View model action
+wbr_        :: [Attribute action] -> View model action
+ruby_       :: [Attribute action] -> [View model action] -> View model action
+rt_         :: [Attribute action] -> [View model action] -> View model action
+rp_         :: [Attribute action] -> [View model action] -> View model action
+```
+
+```haskell
+paragraph :: View model action
+paragraph = p_ [ class_ "intro" ]
+  [ "This is "
+  , strong_ [] [ "important" ]
+  , " and "
+  , em_ [] [ "emphasized" ]
+  , " text."
+  ]
+```
+
+## Lists
+
+```haskell
+ul_ :: [Attribute action] -> [View model action] -> View model action
+ol_ :: [Attribute action] -> [View model action] -> View model action
+li_ :: [Attribute action] -> [View model action] -> View model action
+dl_ :: [Attribute action] -> [View model action] -> View model action
+dt_ :: [Attribute action] -> [View model action] -> View model action
+dd_ :: [Attribute action] -> [View model action] -> View model action
+```
+
+```haskell
+fruitList :: [MisoString] -> View model action
+fruitList items = ul_ [ class_ "fruits" ] $ map renderItem items
+  where
+    renderItem item = li_ [] [ text item ]
+```
+
+## Forms
+
+```haskell
+form_      :: [Attribute action] -> [View model action] -> View model action
+input_     :: [Attribute action] -> View model action
+textarea_  :: [Attribute action] -> [View model action] -> View model action
+button_    :: [Attribute action] -> [View model action] -> View model action
+select_    :: [Attribute action] -> [View model action] -> View model action
+option_    :: [Attribute action] -> [View model action] -> View model action
+label_     :: [Attribute action] -> [View model action] -> View model action
+fieldset_  :: [Attribute action] -> [View model action] -> View model action
+legend_    :: [Attribute action] -> [View model action] -> View model action
+datalist_  :: [Attribute action] -> [View model action] -> View model action
+optgroup_  :: [Attribute action] -> [View model action] -> View model action
+output_    :: [Attribute action] -> [View model action] -> View model action
+progress_  :: [Attribute action] -> [View model action] -> View model action
+meter_     :: [Attribute action] -> [View model action] -> View model action
+```
+
+<Note>
+`form_` used with `onSubmit` prevents the browser from navigating. `onSubmit` sets `preventDefault = True` by default.
+</Note>
+
+```haskell
+data Action = UpdateName MisoString | Submit
+
+loginForm :: MisoString -> View model Action
+loginForm name = form_ [ onSubmit Submit ]
+  [ fieldset_ []
+    [ legend_ [] [ "Sign in" ]
+    , label_ [ for_ "username" ] [ "Username" ]
+    , input_
+      [ id_ "username"
+      , type_ "text"
+      , value_ name
+      , onInput UpdateName
+      , placeholder_ "Enter username"
+      ]
+    , button_ [ type_ "submit" ] [ "Sign in" ]
+    ]
+  ]
+```
+
+## Tables
+
+```haskell
+table_    :: [Attribute action] -> [View model action] -> View model action
+thead_    :: [Attribute action] -> [View model action] -> View model action
+tbody_    :: [Attribute action] -> [View model action] -> View model action
+tfoot_    :: [Attribute action] -> [View model action] -> View model action
+tr_       :: [Attribute action] -> [View model action] -> View model action
+th_       :: [Attribute action] -> [View model action] -> View model action
+td_       :: [Attribute action] -> [View model action] -> View model action
+caption_  :: [Attribute action] -> [View model action] -> View model action
+colgroup_ :: [Attribute action] -> [View model action] -> View model action
+col_      :: [Attribute action] -> View model action
+```
+
+```haskell
+scoresTable :: [(MisoString, Int)] -> View model action
+scoresTable rows = table_ [ class_ "scores" ]
+  [ thead_ [] [ tr_ [] [ th_ [] [ "Player" ], th_ [] [ "Score" ] ] ]
+  , tbody_ [] $ map renderRow rows
+  ]
+  where
+    renderRow (player, score) =
+      tr_ [] [ td_ [] [ text player ], td_ [] [ text (ms score) ] ]
+```
+
+## Media
+
+```haskell
+img_     :: [Attribute action] -> View model action
+video_   :: [Attribute action] -> [View model action] -> View model action
+audio_   :: [Attribute action] -> [View model action] -> View model action
+source_  :: [Attribute action] -> View model action
+track_   :: [Attribute action] -> View model action
+area_    :: [Attribute action] -> [View model action] -> View model action
+map_     :: [Attribute action] -> [View model action] -> View model action
+picture_ :: [Attribute action] -> [View model action] -> View model action
+```
+
+```haskell
+profilePic :: MisoString -> View model action
+profilePic url = img_ [ src_ url, alt_ "Profile picture", width_ "64", height_ "64" ]
+
+videoPLayer :: View model action
+videoPLayer = video_ [ controls_ True, width_ "640" ]
+  [ source_ [ src_ "/video.mp4", type_ "video/mp4" ]
+  , "Your browser does not support video."
+  ]
+```
+
+## Embedded content
+
+```haskell
+iframe_     :: [Attribute action] -> [View model action] -> View model action
+embed_      :: [Attribute action] -> View model action
+object_     :: [Attribute action] -> [View model action] -> View model action
+fencedframe_ :: [Attribute action] -> [View model action] -> View model action
+```
+
+## Scripting
+
+```haskell
+canvas_   :: [Attribute action] -> [View model action] -> View model action
+noscript_ :: [Attribute action] -> [View model action] -> View model action
+```
+
+<Note>
+`canvas_` renders a plain `<canvas>` element. For the canvas drawing DSL, use `Miso.Canvas.canvas_` instead.
+</Note>
+
+## Demarcating edits
+
+```haskell
+ins_ :: [Attribute action] -> [View model action] -> View model action
+del_ :: [Attribute action] -> [View model action] -> View model action
+```
+
+## Interactive elements
+
+```haskell
+details_ :: [Attribute action] -> [View model action] -> View model action
+summary_ :: [Attribute action] -> [View model action] -> View model action
+dialog_  :: [Attribute action] -> [View model action] -> View model action
+menu_    :: [Attribute action] -> [View model action] -> View model action
+```
+
+```haskell
+accordion :: MisoString -> View model action
+accordion content = details_ []
+  [ summary_ [] [ "Click to expand" ]
+  , p_ [] [ text content ]
+  ]
+```
+
+## Figures
+
+```haskell
+figure_     :: [Attribute action] -> [View model action] -> View model action
+figcaption_ :: [Attribute action] -> [View model action] -> View model action
+```
+
+## Web components
+
+```haskell
+slot_     :: [Attribute action] -> [View model action] -> View model action
+template_ :: [Attribute action] -> [View model action] -> View model action
+```
+
+## SVG
+
+`Miso.Html.Element` re-exports `svg_` from `Miso.Svg.Element`:
+
+```haskell
+svg_ :: [Attribute action] -> [View model action] -> View model action
+```
+
+For all other SVG elements, import `Miso.Svg`.
+
+## Nested elements example
+
+```haskell
+card :: MisoString -> MisoString -> View model action
+card title_ content_ = div_ [ class_ "card" ]
+  [ div_ [ class_ "card-header" ]
+    [ h2_ [ class_ "card-title" ] [ text title_ ] ]
+  , div_ [ class_ "card-body" ]
+    [ p_ [] [ text content_ ] ]
+  , div_ [ class_ "card-footer" ]
+    [ button_ [ class_ "btn" ] [ "Read more" ] ]
+  ]
+```

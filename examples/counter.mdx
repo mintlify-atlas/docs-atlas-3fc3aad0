@@ -1,0 +1,315 @@
+---
+title: "Counter example"
+description: "A complete walkthrough of the canonical miso counter application"
+---
+
+The counter is the hello-world of miso. It demonstrates every core concept — model, actions, update, and view — in a minimal application you can read in under 75 lines. The [live demo](https://counter.haskell-miso.org) is built from the [miso-sampler](https://github.com/haskell-miso/miso-sampler) repository.
+
+## Complete source
+
+<CodeGroup>
+
+```haskell Main.hs
+----------------------------------------------------------------------------
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE LambdaCase        #-}
+{-# LANGUAGE CPP               #-}
+----------------------------------------------------------------------------
+module Main where
+----------------------------------------------------------------------------
+import           Miso
+import qualified Miso.Html as H
+import qualified Miso.Html.Property as P
+import           Miso.Lens
+import            Miso.Reload
+----------------------------------------------------------------------------
+-- | Component model state
+data Model
+  = Model
+  { _counter :: Int
+  } deriving (Show, Eq)
+----------------------------------------------------------------------------
+counter :: Lens Model Int
+counter = lens _counter $ \record field -> record { _counter = field }
+----------------------------------------------------------------------------
+-- | Sum type for App events
+data Action
+  = AddOne
+  | SubtractOne
+  | SayHelloWorld
+  deriving (Show, Eq)
+----------------------------------------------------------------------------
+-- | Entry point for a miso application
+main :: IO ()
+#ifdef INTERACTIVE
+main = live defaultEvents app
+#else
+main = startApp defaultEvents app
+#endif
+----------------------------------------------------------------------------
+-- | WASM export, required when compiling w/ the WASM backend.
+#ifdef WASM
+#ifndef INTERACTIVE
+foreign export javascript "hs_start" main :: IO ()
+#endif
+#endif
+----------------------------------------------------------------------------
+-- | `component` takes as arguments the initial model, update function, view function
+app :: App Model Action
+app = component emptyModel updateModel viewModel
+----------------------------------------------------------------------------
+-- | Empty application state
+emptyModel :: Model
+emptyModel = Model 0
+----------------------------------------------------------------------------
+-- | Updates model, optionally introduces side effects
+updateModel :: Action -> Effect parent Model Action
+updateModel = \case
+  AddOne        -> counter += 1
+  SubtractOne   -> counter -= 1
+  SayHelloWorld -> io_ (consoleLog "Hello world")
+----------------------------------------------------------------------------
+-- | Constructs a virtual DOM from a model
+viewModel :: Model -> View Model Action
+viewModel x =
+  H.div_
+    [ P.className "counter"
+    ]
+    [ H.button_ [ H.onClick AddOne ] [ text "+" ]
+    , text $ ms (x ^. counter)
+    , H.button_ [ H.onClick SubtractOne ] [ text "-" ]
+    , H.br_ []
+    , H.button_ [ H.onClick SayHelloWorld ] [ text "Alert Hello World!" ]
+    ]
+----------------------------------------------------------------------------
+```
+
+```cabal app.cabal
+cabal-version: 2.2
+name: app
+version: 0.1.0.0
+synopsis: Sample miso app
+category: Web
+
+flag interactive
+  default:
+    False
+  manual:
+    True
+  description:
+   Enable features for interactive use (e.g., in GHCi)
+
+common options
+  if arch(wasm32)
+    ghc-options:
+      -no-hs-main
+      -optl-mexec-model=reactor
+      "-optl-Wl,--export=hs_start"
+    cpp-options:
+      -DWASM
+
+    if flag(interactive)
+      cpp-options:
+        -DINTERACTIVE
+
+  if arch(javascript)
+     ld-options:
+       -sEXPORTED_RUNTIME_METHODS=HEAP8
+
+executable app
+  import:
+    options
+  main-is:
+    Main.hs
+  build-depends:
+    base, miso
+  mixins:
+    miso,
+    miso (Miso.Prelude as Prelude),
+    base hiding (Prelude)
+  default-language:
+    Haskell2010
+```
+
+</CodeGroup>
+
+## Walkthrough
+
+### The `Model` and lens
+
+```haskell
+data Model
+  = Model
+  { _counter :: Int
+  } deriving (Show, Eq)
+
+counter :: Lens Model Int
+counter = lens _counter $ \record field -> record { _counter = field }
+```
+
+`Model` is the single source of truth for the application. Here it wraps a single `Int`. The `counter` lens is defined using miso's lightweight `Miso.Lens` module — no external lens library required. The lens is used later in `updateModel` and `viewModel` to read and modify the field.
+
+### The `Action` sum type
+
+```haskell
+data Action
+  = AddOne
+  | SubtractOne
+  | SayHelloWorld
+  deriving (Show, Eq)
+```
+
+`Action` enumerates every event the application can handle. All user interactions and side-effect completions flow through this type. Keeping actions as a plain sum type makes it easy to trace every possible state transition.
+
+### The `App` value
+
+```haskell
+app :: App Model Action
+app = component emptyModel updateModel viewModel
+
+emptyModel :: Model
+emptyModel = Model 0
+```
+
+`component` is the smart constructor for `App`. It takes three arguments:
+
+| Argument | Type | Purpose |
+|---|---|---|
+| `emptyModel` | `Model` | Initial state |
+| `updateModel` | `Action -> Effect parent Model Action` | State transitions |
+| `viewModel` | `Model -> View Model Action` | Virtual DOM |
+
+The `App Model Action` value is passed directly to `startApp` in `main`.
+
+### The `updateModel` function
+
+```haskell
+updateModel :: Action -> Effect parent Model Action
+updateModel = \case
+  AddOne        -> counter += 1
+  SubtractOne   -> counter -= 1
+  SayHelloWorld -> io_ (consoleLog "Hello world")
+```
+
+`updateModel` maps each `Action` to an `Effect`. The `Effect` type captures both pure model updates and side effects:
+
+- `counter += 1` and `counter -= 1` use the `Miso.Lens` operators to perform a pure in-place update on the focused field. No side effects are scheduled.
+- `io_ (consoleLog "Hello world")` schedules an `IO` action without producing a new action back into the system. `io_` is the combinator for fire-and-forget effects.
+
+### The `viewModel` function
+
+```haskell
+viewModel :: Model -> View Model Action
+viewModel x =
+  H.div_
+    [ P.className "counter"
+    ]
+    [ H.button_ [ H.onClick AddOne ] [ text "+" ]
+    , text $ ms (x ^. counter)
+    , H.button_ [ H.onClick SubtractOne ] [ text "-" ]
+    , H.br_ []
+    , H.button_ [ H.onClick SayHelloWorld ] [ text "Alert Hello World!" ]
+    ]
+```
+
+`viewModel` is a pure function from `Model` to a virtual DOM tree (`View`). Key points:
+
+- `H.div_`, `H.button_`, `H.br_` are HTML element constructors from `Miso.Html`.
+- `H.onClick` attaches an event handler that dispatches an `Action` when the element is clicked.
+- `x ^. counter` reads the counter field through the lens.
+- `ms` converts a `Show`able value to a `MisoString` for rendering as a text node.
+
+### The `main` function
+
+```haskell
+main :: IO ()
+#ifdef INTERACTIVE
+main = live defaultEvents app
+#else
+main = startApp defaultEvents app
+#endif
+```
+
+`startApp` mounts the miso application into the browser and starts the event loop. `defaultEvents` is a standard set of browser event listeners. The `#ifdef INTERACTIVE` branch selects `live` instead, which enables hot-reload via [WASM browser mode](https://github.com/haskell-miso/miso-sampler/blob/main/README.md#browser-mode-).
+
+### WASM-specific CPP ifdefs
+
+```haskell
+#ifdef WASM
+#ifndef INTERACTIVE
+foreign export javascript "hs_start" main :: IO ()
+#endif
+#endif
+```
+
+When compiling with the GHC WASM backend, miso does not use a standard Haskell `main` entry point. Instead, the WASM module exports `hs_start` as a JavaScript-callable function. The `foreign export javascript` declaration registers this export.
+
+The corresponding `app.cabal` flags wire this up:
+
+```cabal
+if arch(wasm32)
+  ghc-options:
+    -no-hs-main
+    -optl-mexec-model=reactor
+    "-optl-Wl,--export=hs_start"
+  cpp-options:
+    -DWASM
+```
+
+- `-no-hs-main` suppresses the default Haskell runtime entry point.
+- `-optl-mexec-model=reactor` tells the WASM linker to use the reactor execution model (a long-running module rather than a one-shot command).
+- `--export=hs_start` makes the symbol visible to the JavaScript host.
+
+The `INTERACTIVE` flag activates the hot-reload path and suppresses the `foreign export` (which is incompatible with GHCi):
+
+```cabal
+if flag(interactive)
+  cpp-options:
+    -DINTERACTIVE
+```
+
+For the JavaScript backend the only required linker option is:
+
+```cabal
+if arch(javascript)
+  ld-options:
+    -sEXPORTED_RUNTIME_METHODS=HEAP8
+```
+
+## Running the counter
+
+<Tabs>
+  <Tab title="Nix (recommended)">
+    ```bash
+    # Install the binary cache first to avoid long build times
+    cachix use haskell-miso-cachix
+
+    # Clone the sampler repository
+    git clone https://github.com/haskell-miso/miso-sampler
+    cd miso-sampler
+
+    # Build for WASM and serve
+    nix develop .#wasm --command bash -c 'make && make serve'
+    ```
+
+    Open `http://localhost:8080` in your browser.
+  </Tab>
+
+  <Tab title="Cabal (manual)">
+    You need GHC's WASM cross-compiler. Once you have it on your `PATH`:
+
+    ```bash
+    git clone https://github.com/haskell-miso/miso-sampler
+    cd miso-sampler
+
+    # Build with the WASM GHC
+    wasm32-wasi-ghc --make Main.hs -o app.wasm
+    ```
+
+    <Note>The exact invocation depends on your toolchain setup. See the [miso-sampler README](https://github.com/haskell-miso/miso-sampler) for full instructions.</Note>
+  </Tab>
+</Tabs>
+
+<Tip>
+  The live demo is available at [counter.haskell-miso.org](https://counter.haskell-miso.org) — no installation required.
+</Tip>

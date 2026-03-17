@@ -1,0 +1,163 @@
+---
+title: "Nix"
+description: "Using Nix for reproducible miso builds and deployment"
+---
+
+Nix is the recommended way to build, develop, and deploy miso applications. It provides reproducible builds across machines, pinned compiler versions, and access to miso's binary cache so you don't have to compile dependencies from source.
+
+The source code of [haskell-miso.org](https://github.com/haskell-miso/haskell-miso.org) is a reference architecture for a full client/server miso application deployed with Nix.
+
+## Prerequisites: enable flakes
+
+Miso's Nix support requires [Nix Flakes](https://wiki.nixos.org/wiki/Flakes).
+
+```bash
+# Install Nix
+curl -L https://nixos.org/nix/install | sh
+
+# Enable flakes
+echo 'experimental-features = nix-command flakes' >> ~/.config/nix/config.nix
+```
+
+## Binary cache
+
+Miso maintains a binary cache on [Cachix](https://cachix.org) that stores pre-built artifacts for all supported targets. Using it avoids compiling GHC, GHCJS, and the WASM toolchain from source.
+
+```bash
+cachix use haskell-miso-cachix
+```
+
+The cache configuration is also embedded directly in miso's `flake.nix`:
+
+```nix
+nixConfig = {
+  extra-substituters = [
+    "https://haskell-miso-cachix.cachix.org"
+  ];
+  extra-trusted-public-keys = [
+    "haskell-miso-cachix.cachix.org-1:m8hN1cvFMJtYib4tj+06xkKt5ABMSGfe8W7s40x1kQ0="
+  ];
+};
+```
+
+Users who pull miso as a flake input automatically inherit these substituter settings.
+
+### GitHub Actions
+
+Add the following step to your CI workflow to populate and read from the cache:
+
+```yaml
+- name: Install cachix
+  uses: cachix/cachix-action@v16
+  with:
+    name: haskell-miso-cachix
+```
+
+## Pinned nixpkgs
+
+Miso pins a specific revision of nixpkgs to guarantee that all packages — including the GHCJS 9.12.2 cross-compiler and Emscripten — are known to work together:
+
+```nix
+inputs = {
+  nixpkgs.url =
+    "github:nixos/nixpkgs?rev=9e2e8a7878573d312db421d69e071690ec34e98c";
+
+  flake-utils.url = "github:numtide/flake-utils";
+
+  # GHC WASM backend
+  ghc-wasm-meta.url =
+    "gitlab:haskell-wasm/ghc-wasm-meta?host=gitlab.haskell.org";
+};
+```
+
+When you use miso as a flake input your application inherits this pinned nixpkgs via the overlay.
+
+## Dev shells
+
+Miso's flake exposes several dev shells, each configured for a specific compilation target.
+
+<Tabs>
+  <Tab title="WASM (recommended)">
+    The WASM shell provides GHC 9.12.2 WASM, `ghciwatch` for hot reload, and `http-server`.
+
+    ```bash
+    nix develop .#wasm
+    ```
+
+    Inside the shell:
+
+    ```bash
+    # Build the WASM bundle
+    build
+
+    # Hot-reload development session
+    repl-watch
+    ```
+
+    See [Hot reload](/guides/hot-reload) for full details.
+  </Tab>
+  <Tab title="GHCJS (JS backend)">
+    The `ghcjs` shell provides the GHC JavaScript backend (GHCJS 9.12.2) via Emscripten.
+
+    ```bash
+    nix develop .#ghcjs
+    ```
+
+    Inside the shell:
+
+    ```bash
+    # Build with the JS backend
+    build
+    ```
+
+    The shell sets up Emscripten automatically and exports the required environment variables (`CC`, `EM_CACHE`).
+  </Tab>
+  <Tab title="Default (GHC)">
+    The default shell targets vanilla GHC 9.12.2 for server-side and testing workflows.
+
+    ```bash
+    nix develop
+    ```
+
+    Includes `cabal-install`, `ghcid`, `ormolu`, `just`, `bun`, and `tailwindcss`.
+  </Tab>
+  <Tab title="HLS">
+    For IDE support via Haskell Language Server:
+
+    ```bash
+    nix develop .#hls
+    ```
+  </Tab>
+</Tabs>
+
+## Available packages
+
+```nix
+nix build .#miso-ghc-9122    # Miso compiled with GHC 9.12.2
+nix build .#miso-ghcjs-9122  # Miso compiled with GHCJS 9.12.2
+nix build .#miso-from-html   # HTML-to-miso conversion utility
+```
+
+## Quick start with miso-sampler
+
+The fastest way to get a Nix-based miso project running:
+
+```bash
+git clone https://github.com/haskell-miso/miso-sampler
+cd miso-sampler
+nix develop .#wasm --command bash -c 'make && make serve'
+```
+
+This builds the WASM bundle and starts a local HTTP server.
+
+## Reference: haskell-miso.org
+
+The [haskell-miso.org](https://github.com/haskell-miso/haskell-miso.org) repository demonstrates:
+
+- A two-executable `cabal` project (client + server) with `buildable` controlled by the compiler
+- A `default.nix` that builds both executables and bundles them for deployment
+- NixOS module usage for hosting the application
+
+<Tip>
+  If unfamiliar with Nix and Haskell together, [@Gabriella439](https://github.com/Gabriella439)'s ["Nix and Haskell in production"](https://github.com/Gabriella439/haskell-nix) guide is a good starting point.
+</Tip>

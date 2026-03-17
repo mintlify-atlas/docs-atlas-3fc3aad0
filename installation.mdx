@@ -1,0 +1,336 @@
+---
+title: "Installation"
+description: "Install GHC and the required toolchain for miso development"
+---
+
+Miso compiles to WebAssembly or JavaScript using GHC. You need a GHC that supports one of these backends. The standard `ghc` you may already have installed does not support either target — you need a cross-compiler.
+
+<Note>
+  The miso team recommends using the WebAssembly backend as the default compilation target.
+</Note>
+
+## Acquire the toolchain
+
+<Tabs>
+  <Tab title="GHCup (recommended)">
+    [GHCup](https://www.haskell.org/ghcup/) is the recommended way to install GHC for new Haskell users. It can install both the WASM and JavaScript cross-compilers.
+
+    First, install GHCup if you do not already have it:
+
+    ```bash
+    curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org | sh
+    ```
+
+    Then follow GHCup's third-party channel instructions to add the WASM compiler. See the official [ghc-wasm-meta README](https://gitlab.haskell.org/haskell-wasm/ghc-wasm-meta#using-ghcup) for the exact steps.
+  </Tab>
+  <Tab title="Nix">
+    Nix can provide both the WASM and JavaScript compilers without requiring GHCup. It is the recommended approach for reproducible builds and CI.
+
+    Install Nix:
+
+    ```bash
+    curl -L https://nixos.org/nix/install | sh
+    ```
+
+    Enable flakes:
+
+    ```bash
+    echo 'experimental-features = nix-command flakes' >> ~/.config/nix/config.nix
+    ```
+
+    <Tip>
+      Use the miso binary cache with cachix to avoid rebuilding dependencies from source. This significantly reduces build times.
+
+      ```bash
+      cachix use haskell-miso-cachix
+      ```
+
+      For GitHub Actions CI, add the Cachix action to your workflow:
+
+      ```yaml
+      - name: Install cachix
+        uses: cachix/cachix-action@v16
+        with:
+          name: haskell-miso-cachix
+      ```
+    </Tip>
+  </Tab>
+</Tabs>
+
+---
+
+## Backend setup
+
+<Tabs>
+  <Tab title="WebAssembly (recommended)">
+    ### Acquire the WASM compiler
+
+    <Tabs>
+      <Tab title="Nix shell (temporary)">
+        Enter a shell with the WASM compiler available:
+
+        ```bash
+        nix shell 'gitlab:haskell-wasm/ghc-wasm-meta?host=gitlab.haskell.org'
+        ```
+
+        This puts `wasm32-wasi-cabal` and `wasm32-wasi-ghc` on your `$PATH` for the duration of the shell session.
+      </Tab>
+      <Tab title="Nix profile (permanent)">
+        Install the WASM compiler into your global profile so it is always available:
+
+        ```bash
+        nix profile install 'gitlab:haskell-wasm/ghc-wasm-meta?host=gitlab.haskell.org'
+        ```
+      </Tab>
+    </Tabs>
+
+    <Note>
+      The WASM backend is relatively new and not every Haskell package in the ecosystem supports it yet. You may need to use patched packages from time to time, which is why `--allow-newer` is passed to cabal.
+    </Note>
+
+    ### Configure cabal.project
+
+    Update your `cabal.project` to target the WASM compiler:
+
+    ```yaml cabal.project
+    packages:
+      .
+
+    with-compiler:
+      wasm32-wasi-ghc
+
+    with-hc-pkg:
+      wasm32-wasi-ghc-pkg
+
+    source-repository-package
+      type: git
+      location: https://github.com/dmjio/miso
+      branch: master
+
+    if arch(wasm32)
+      -- Required for TemplateHaskell. When using wasm32-wasi-cabal from
+      -- ghc-wasm-meta, this is superseded by the global cabal.config.
+      shared: True
+    ```
+
+    ### Build
+
+    ```bash
+    wasm32-wasi-cabal update
+    wasm32-wasi-cabal build --allow-newer
+    ```
+
+    Expected output:
+
+    ```
+    Configuration is affected by the following files:
+    - cabal.project
+    Resolving dependencies...
+    Build profile: -w ghc-9.12.2.20250327 -O1
+    In order, the following will be built (use -v for more details):
+     - app-0.1.0.0 (exe:app) (configuration changed)
+    Configuring executable 'app' for app-0.1.0.0...
+    Preprocessing executable 'app' for app-0.1.0.0...
+    Building executable 'app' for app-0.1.0.0...
+    [1 of 1] Compiling Main             ( Main.hs, dist-newstyle/build/wasm32-wasi/ghc-9.12.2.20250327/app-0.1.0.0/x/app/build/app/app-tmp/Main.o )
+    [2 of 2] Linking dist-newstyle/build/wasm32-wasi/ghc-9.12.2.20250327/app-0.1.0.0/x/app/build/app/app.wasm
+    ```
+
+    The `.wasm` binary is now in `dist-newstyle/`.
+
+    ### Prepare for the browser
+
+    A `.wasm` binary cannot be opened directly in a browser. You need to create a hosting directory that includes the WASM payload, a JavaScript FFI shim, and an HTML loader.
+
+    <Warning>
+      Use an up-to-date Node.js version (tested with v24.2.0) to ensure `post-link.mjs` runs correctly.
+    </Warning>
+
+    **Step 1** — Create the output directory and generate the FFI shim:
+
+    ```bash
+    # Create the directory for hosting
+    mkdir -v app.wasmexe
+
+    # Produce ghc_wasm_jsffi.js, which makes GHC's JavaScript FFI work
+    $(wasm32-wasi-ghc --print-libdir)/post-link.mjs \
+       --input $(wasm32-wasi-cabal list-bin app --allow-newer) \
+       --output app.wasmexe/ghc_wasm_jsffi.js
+
+    # Copy the .wasm payload into the hosting directory
+    cp -v $(wasm32-wasi-cabal list-bin app --allow-newer) app.wasmexe
+    ```
+
+    **Step 2** — Create `app.wasmexe/index.html`:
+
+    ```html index.html
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Sample miso WASM counter app</title>
+      </head>
+      <body>
+        <script src="index.js" type="module"></script>
+      </body>
+    </html>
+    ```
+
+    **Step 3** — Create `app.wasmexe/index.js`:
+
+    ```javascript index.js
+    import { WASI, OpenFile, File, ConsoleStdout } from "https://cdn.jsdelivr.net/npm/@bjorn3/browser_wasi_shim@0.3.0/dist/index.js";
+    import ghc_wasm_jsffi from "./ghc_wasm_jsffi.js";
+
+    const args = [];
+    const env = ["GHCRTS=-H64m"];
+    const fds = [
+      new OpenFile(new File([])), // stdin
+      ConsoleStdout.lineBuffered((msg) => console.log(`[WASI stdout] ''${msg}`)),
+      ConsoleStdout.lineBuffered((msg) => console.warn(`[WASI stderr] ''${msg}`)),
+    ];
+    const options = { debug: false };
+    const wasi = new WASI(args, env, fds, options);
+
+    const instance_exports = {};
+    const { instance } = await WebAssembly.instantiateStreaming(fetch("app.wasm"), {
+      wasi_snapshot_preview1: wasi.wasiImport,
+      ghc_wasm_jsffi: ghc_wasm_jsffi(instance_exports),
+    });
+    Object.assign(instance_exports, instance.exports);
+
+    wasi.initialize(instance);
+    await instance.exports.hs_start(globalThis.example);
+    ```
+
+    Your `app.wasmexe/` directory should now contain:
+
+    ```
+    app.wasmexe/
+      app.wasm
+      ghc_wasm_jsffi.js
+      index.html
+      index.js
+    ```
+
+    ### Serve locally
+
+    ```bash
+    http-server app.wasmexe
+    ```
+
+    Open the URL printed by `http-server` (typically `http://127.0.0.1:8080`) to view your application in the browser.
+
+    <Tip>
+      Install `http-server` via npm if you do not already have it: `npm install -g http-server`
+    </Tip>
+  </Tab>
+  <Tab title="JavaScript">
+    ### Acquire the JS compiler
+
+    <Tabs>
+      <Tab title="Nix shell (temporary)">
+        Enter a shell with the GHC JavaScript backend available:
+
+        ```bash
+        nix-shell -p pkgs.pkgsCross.ghcjs.haskell.packages.ghc9122.ghc \
+          -I nixpkgs=https://github.com/NixOS/nixpkgs/archive/65f179f903e8bbeff3215cd613bdc570940c0eab.tar.gz
+        ```
+
+        This puts `javascript-unknown-ghcjs-ghc` and `javascript-unknown-ghcjs-ghc-pkg` on your `$PATH`.
+      </Tab>
+      <Tab title="Nix profile (permanent)">
+        Install the JS compiler into your global profile:
+
+        ```bash
+        nix-env -iA pkgs.pkgsCross.ghcjs.haskell.packages.ghc9122.ghc \
+          -f https://github.com/NixOS/nixpkgs/archive/65f179f903e8bbeff3215cd613bdc570940c0eab.tar.gz
+        ```
+      </Tab>
+    </Tabs>
+
+    ### Configure cabal.project
+
+    Update your `cabal.project` to target the JavaScript compiler:
+
+    ```yaml cabal.project
+    packages:
+      .
+
+    source-repository-package
+      type: git
+      location: https://github.com/dmjio/miso
+      branch: master
+
+    with-compiler:
+      javascript-unknown-ghcjs-ghc
+
+    with-hc-pkg:
+      javascript-unknown-ghcjs-ghc-pkg
+    ```
+
+    <Note>
+      cabal uses the compiler specified in `with-compiler`. You do not need to invoke `javascript-unknown-ghcjs-ghc` directly.
+    </Note>
+
+    ### Build
+
+    ```bash
+    cabal update && cabal build --allow-newer
+    ```
+
+    Expected output:
+
+    ```
+    Configuring executable 'app' for app-0.1.0.0...
+    Preprocessing executable 'app' for app-0.1.0.0...
+    Building executable 'app' for app-0.1.0.0...
+    [1 of 1] Compiling Main             ( Main.hs, dist-newstyle/build/javascript-ghcjs/ghc-9.12.2/app-0.1.0.0/x/app/build/app/app-tmp/Main.o )
+    [2 of 2] Linking dist-newstyle/build/javascript-ghcjs/ghc-9.12.2/app-0.1.0.0/x/app/build/app/app.jsexe
+    ```
+
+    A `.jsexe` directory is produced in `dist-newstyle/`.
+
+    ### Serve locally
+
+    Use `cabal list-bin` to locate the output and `http-server` to serve it:
+
+    ```bash
+    http-server $(cabal list-bin app --allow-newer).jsexe
+    ```
+
+    Expected output:
+
+    ```
+    Starting up http-server, serving /home/user/app/dist-newstyle/build/javascript-ghcjs/ghc-9.12.2/app-0.1.0.0/x/app/build/app/app.jsexe
+
+    http-server version: 14.1.1
+    ...
+    Available on:
+      http://127.0.0.1:8080
+    Hit CTRL-C to stop the server
+    ```
+
+    Open `http://127.0.0.1:8080` in your browser to view the application.
+  </Tab>
+</Tabs>
+
+---
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="bolt" href="/quickstart">
+    Build the counter app step by step
+  </Card>
+  <Card title="Hot reload" icon="rotate" href="/guides/hot-reload">
+    Set up live reload with WASM browser mode and ghciwatch
+  </Card>
+  <Card title="Architecture" icon="sitemap" href="/architecture/overview">
+    Understand how miso applications are structured
+  </Card>
+  <Card title="Nix guide" icon="snowflake" href="/guides/nix">
+    Use Nix for reproducible builds and deployment
+  </Card>
+</CardGroup>

@@ -1,0 +1,261 @@
+---
+title: "SVG and Canvas"
+description: "Rendering graphics with SVG and Canvas in miso"
+---
+
+Miso supports two approaches to drawing graphics in the browser: declarative SVG (rendered as part of the virtual DOM) and imperative Canvas 2D (using a monadic API).
+
+## SVG
+
+Import `Miso.Svg` to access all SVG element constructors and SVG event handlers in a single module:
+
+```haskell
+import Miso
+import Miso.Svg
+```
+
+`Miso.Svg` re-exports:
+- `Miso.Svg.Element` — element constructors
+- `Miso.Svg.Event` — SVG-specific event attributes
+
+For SVG presentation attributes (fill, stroke, etc.) import `Miso.Svg.Property` directly.
+
+### Elements
+
+All SVG elements are rendered using the `SVG` namespace (`http://www.w3.org/2000/svg`) via `document.createElementNS`. The API mirrors HTML elements — a trailing underscore, a list of attributes, and a list of children.
+
+<CodeGroup>
+```haskell Graphics
+circle_   :: [Attribute action] -> [View model action] -> View model action
+ellipse_  :: [Attribute action] -> [View model action] -> View model action
+image_    :: [Attribute action] -> [View model action] -> View model action
+line_     :: [Attribute action] -> [View model action] -> View model action
+path_     :: [Attribute action] -> [View model action] -> View model action
+polygon_  :: [Attribute action] -> [View model action] -> View model action
+polyline_ :: [Attribute action] -> [View model action] -> View model action
+rect_     :: [Attribute action] -> [View model action] -> View model action
+use_      :: [Attribute action] -> [View model action] -> View model action
+```
+
+```haskell Containers
+g_       :: [Attribute action] -> [View model action] -> View model action
+defs_    :: [Attribute action] -> [View model action] -> View model action
+marker_  :: [Attribute action] -> [View model action] -> View model action
+mask_    :: [Attribute action] -> [View model action] -> View model action
+pattern_ :: [Attribute action] -> [View model action] -> View model action
+switch_  :: [Attribute action] -> [View model action] -> View model action
+symbol_  :: [Attribute action] -> [View model action] -> View model action
+```
+
+```haskell Gradients & Filters
+linearGradient_ :: [Attribute action] -> [View model action] -> View model action
+radialGradient_ :: [Attribute action] -> [View model action] -> View model action
+stop_           :: [Attribute action] -> [View model action] -> View model action
+filter_         :: [Attribute action] -> [View model action] -> View model action
+feGaussianBlur_ :: [Attribute action] -> [View model action] -> View model action
+feDropShadow_   :: [Attribute action] -> [View model action] -> View model action
+-- ... and all other fe* filter primitives
+```
+
+```haskell Animation
+animate_          :: [Attribute action] -> [View model action] -> View model action
+animateMotion_    :: [Attribute action] -> [View model action] -> View model action
+animateTransform_ :: [Attribute action] -> [View model action] -> View model action
+set_              :: [Attribute action] -> [View model action] -> View model action
+```
+</CodeGroup>
+
+### Basic SVG example
+
+This example is taken directly from the `Miso.Svg` module documentation:
+
+```haskell
+import Miso
+import Miso.Svg
+
+view_ :: Int -> View Int action
+view_ n = svg_ [ height_ "100", width_ "100" ]
+  [ circle_
+      [ cx_ "50"
+      , cy_ "50"
+      , r_ "40"
+      , stroke_ "green"
+      , strokeWidth_ "4"
+      , fill_ "yellow"
+      ]
+      []
+  ]
+```
+
+### Building a scene
+
+```haskell
+import Miso
+import Miso.Svg
+import Miso.Svg.Property
+
+scene :: View Model Action
+scene =
+  svg_ [ width_ "400", height_ "200", viewBox_ "0 0 400 200" ]
+    [ -- Background rectangle
+      rect_
+        [ x_ "0", y_ "0", width_ "400", height_ "200", fill_ "#f0f0f0" ]
+        []
+    , -- A path
+      path_
+        [ d_ "M 10 10 L 200 100 L 390 10 Z"
+        , stroke_ "steelblue"
+        , strokeWidth_ "2"
+        , fill_ "none"
+        ]
+        []
+    , -- Grouped elements
+      g_ [ transform_ "translate(200,100)" ]
+        [ circle_ [ r_ "30", fill_ "coral" ] []
+        , text_ [ textAnchor_ "middle", dy_ "5" ] [ text "miso" ]
+        ]
+    ]
+```
+
+<Tip>
+  See the [SVG example](https://github.com/haskell-miso/miso-svg) and [live demo](https://svg.haskell-miso.org) for a complete application.
+</Tip>
+
+### MathML
+
+For mathematical notation, miso also provides `Miso.Mathml`, which works the same way as `Miso.Svg` but renders elements in the MathML namespace. See the [MathML example](https://github.com/haskell-miso/miso-mathml) ([live demo](https://mathml.haskell-miso.org)).
+
+---
+
+## Canvas 2D
+
+The `Miso.Canvas` module provides a monadic API for the [Canvas 2D rendering context](https://developer.mozilla.org/en-US/docs/Web/API/CanvasRenderingContext2D). The `Canvas` monad wraps a `ReaderT CanvasContext2D IO` computation.
+
+### Embedding a canvas in the view
+
+Use the `canvas` function to embed a `<canvas>` element:
+
+```haskell
+canvas
+  :: (FromJSVal canvasState, ToJSVal canvasState)
+  => [Attribute action]             -- ^ HTML attributes (e.g. width, height)
+  -> (DOMRef -> Canvas canvasState) -- ^ Init: called once on mount, returns initial state
+  -> (canvasState -> Canvas ())     -- ^ Draw: called on every render with current state
+  -> View model action
+```
+
+The `canvas_` variant (with the underscore) is lower-level and not specialized to `ReaderT` — it is useful when integrating with libraries like [Three.js](https://threejs.org).
+
+### Canvas API
+
+```haskell
+-- Paths
+beginPath :: Canvas ()
+closePath :: Canvas ()
+moveTo    :: Coord -> Coord -> Canvas ()
+lineTo    :: Coord -> Coord -> Canvas ()
+arc       :: Coord -> Coord -> Double -> Double -> Double -> Canvas ()
+arcTo     :: Coord -> Coord -> Coord -> Coord -> Double -> Canvas ()
+rect      :: Coord -> Coord -> Double -> Double -> Canvas ()
+bezierCurveTo    :: Coord -> Coord -> Coord -> Coord -> Coord -> Coord -> Canvas ()
+quadraticCurveTo :: Coord -> Coord -> Coord -> Coord -> Canvas ()
+
+-- Filling and stroking
+fill   :: Canvas ()
+stroke :: Canvas ()
+
+-- Rectangles
+clearRect  :: Coord -> Coord -> Double -> Double -> Canvas ()
+fillRect   :: Coord -> Coord -> Double -> Double -> Canvas ()
+strokeRect :: Coord -> Coord -> Double -> Double -> Canvas ()
+
+-- Styling
+fillStyle   :: StyleArg -> Canvas ()
+strokeStyle :: StyleArg -> Canvas ()
+lineWidth   :: Double -> Canvas ()
+lineCap     :: LineCapType -> Canvas ()
+lineJoin    :: LineJoinType -> Canvas ()
+miterLimit  :: Double -> Canvas ()
+
+-- Text
+fillText      :: MisoString -> Coord -> Coord -> Canvas ()
+strokeText    :: MisoString -> Coord -> Coord -> Canvas ()
+font          :: MisoString -> Canvas ()
+textAlign     :: TextAlignType -> Canvas ()
+textBaseline  :: TextBaselineType -> Canvas ()
+direction     :: DirectionType -> Canvas ()
+
+-- Transforms
+scale        :: Double -> Double -> Canvas ()
+rotate       :: Double -> Canvas ()
+translate    :: Coord -> Coord -> Canvas ()
+transform    :: Double -> Double -> Double -> Double -> Double -> Double -> Canvas ()
+setTransform :: Double -> Double -> Double -> Double -> Double -> Double -> Canvas ()
+
+-- State
+save    :: Canvas ()
+restore :: Canvas ()
+clip    :: Canvas ()
+
+-- Gradients and patterns
+createLinearGradient :: Coord -> Coord -> Coord -> Coord -> Canvas Gradient
+createRadialGradient :: Coord -> Coord -> Double -> Coord -> Coord -> Double -> Canvas Gradient
+addColorStop         :: Gradient -> Double -> MisoString -> Canvas ()
+createPattern        :: Image -> PatternType -> Canvas Pattern
+
+-- Images
+drawImage  :: Image -> Coord -> Coord -> Canvas ()
+drawImage' :: Image -> Coord -> Coord -> Double -> Double -> Canvas ()
+```
+
+### Basic Canvas example
+
+```haskell
+{-# LANGUAGE OverloadedStrings #-}
+module Main where
+
+import Miso
+import Miso.Canvas
+import Miso.CSS (rgb)
+
+myCanvas :: View Model Action
+myCanvas =
+  canvas
+    [ width_ "300", height_ "200" ]
+    (\_ -> pure ())           -- init: no state needed
+    (\_ -> do                 -- draw
+        -- Blue filled rectangle
+        fillStyle (color (rgb 70 130 180))
+        fillRect 10 10 100 80
+        -- Red stroked circle
+        strokeStyle (color (rgb 200 50 50))
+        lineWidth 3
+        beginPath
+        arc 200 100 50 0 (2 * pi)
+        stroke
+        -- White text
+        fillStyle (color (rgb 255 255 255))
+        font "16px sans-serif"
+        fillText "miso" 165 105
+    )
+```
+
+<Tip>
+  See the [Canvas 2D example](https://github.com/haskell-miso/miso-canvas2d) and [live demo](https://canvas.haskell-miso.org) for a complete application.
+</Tip>
+
+### `StyleArg`
+
+The `StyleArg` type unifies colors, gradients, and patterns for use with `fillStyle` and `strokeStyle`:
+
+```haskell
+data StyleArg
+  = ColorArg   Color
+  | GradientArg Gradient
+  | PatternArg  Pattern
+
+-- Smart constructors
+color    :: Color    -> StyleArg
+gradient :: Gradient -> StyleArg
+pattern_ :: Pattern  -> StyleArg
+```

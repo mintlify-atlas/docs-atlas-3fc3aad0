@@ -1,0 +1,270 @@
+---
+title: "Effects"
+description: "Managing side effects with the Effect monad"
+---
+
+The `Effect` type is the mechanism by which miso applications introduce side effects. It is a restricted monad — pure model mutations and IO scheduling are both first-class, but `IO` is never executed inside `Effect` itself.
+
+## What is Effect?
+
+`Effect` is defined as an `RWS` monad:
+
+```haskell
+type Effect parent model action =
+  RWS (ComponentInfo parent) [Schedule action] model ()
+```
+
+| RWS Layer | Role |
+|---|---|
+| **Reader** `ComponentInfo parent` | Access component metadata (ID, parent ID, DOM ref) |
+| **Writer** `[Schedule action]` | Accumulate IO actions to be run by the scheduler |
+| **State** `model` | Read and mutate the current model |
+
+<Note>
+  There is no `MonadIO` instance for `Effect`. IO is only scheduled — it runs after the current update cycle completes.
+</Note>
+
+## Synchronicity
+
+Every scheduled IO action carries a `Synchronicity` tag:
+
+```haskell
+data Synchronicity
+  = Async  -- ^ default: run in a separate thread
+  | Sync   -- ^ block the render thread until complete
+
+data Schedule action = Schedule Synchronicity (Sink action -> IO ())
+```
+
+<Warning>
+  `Sync` will block the render thread for the component. Use `io` (async) by default and reach for `sync` only when ordering guarantees are strictly necessary.
+</Warning>
+
+## Async IO combinators
+
+### `io` — schedule IO that dispatches an action
+
+```haskell
+io :: IO action -> Effect parent model action
+```
+
+Runs the `IO` asynchronously. The resulting `action` is dispatched back to `update`:
+
+```haskell
+update = \case
+  FetchData -> io $ do
+    result <- httpGet "/api/data"
+    pure (GotData result)
+```
+
+### `io_` — schedule IO, discard result
+
+```haskell
+io_ :: IO () -> Effect parent model action
+```
+
+Useful for fire-and-forget effects like logging:
+
+```haskell
+update = \case
+  Log msg -> io_ (consoleLog msg)
+```
+
+### `for` — schedule IO returning a Foldable
+
+```haskell
+for :: Foldable f => IO (f action) -> Effect parent model action
+```
+
+Handy when the IO result is a `Maybe action`:
+
+```haskell
+update = \case
+  TryFetch -> for $ do
+    resp <- fetchMaybe "/api/value"
+    pure (GotValue <$> resp)   -- IO (Maybe Action)
+```
+
+### `withSink` — access the event sink directly
+
+```haskell
+withSink :: (Sink action -> IO ()) -> Effect parent model action
+```
+
+`Sink` is a function `action -> IO ()` that writes directly to the global event queue. `withSink` is the primitive on which `io`, `io_`, and `batch` are all built:
+
+```haskell
+-- Scheduling an action from a callback
+update = \case
+  FetchJSON -> withSink $ \sink ->
+    getJSON (sink . ReceivedJSON) (sink . HandleError)
+```
+
+### `batch` / `batch_` — multiple IO actions
+
+```haskell
+batch  :: [IO action] -> Effect parent model action
+batch_ :: [IO ()]     -> Effect parent model action
+```
+
+Schedules multiple independent IO actions in one call:
+
+```haskell
+update = \case
+  Init -> batch_
+    [ consoleLog "starting up"
+    , setupThirdPartyLib
+    ]
+```
+
+## Sync IO combinators
+
+### `sync` / `sync_`
+
+```haskell
+sync  :: IO action -> Effect parent model action
+sync_ :: IO ()     -> Effect parent model action
+```
+
+Forces the scheduler to evaluate the IO action synchronously before continuing:
+
+```haskell
+update = \case
+  CriticalWrite -> sync_ writeToDOM
+```
+
+## The `<#` and `#>` operators
+
+These operators are convenience smart constructors that pair a new model with a single asynchronous IO action:
+
+```haskell
+infixl 0 <#
+(<#) :: model -> IO action -> Effect parent model action
+m <# action = put m >> tell [ async $ \f -> f =<< action ]
+
+infixr 0 #>
+(#>) :: IO action -> model -> Effect parent model action
+(#>) = flip (<#)
+```
+
+```haskell
+update = \case
+  Click -> newModel <# do
+    result <- someIO
+    pure (GotResult result)
+```
+
+## Dispatching new actions
+
+### `issue` — dispatch an action immediately
+
+```haskell
+issue :: action -> Effect parent model action
+```
+
+Useful for chaining actions without IO:
+
+```haskell
+update = \case
+  Click -> issue HelloWorld
+  HelloWorld -> io_ (consoleLog "Hello World")
+```
+
+### `noop` — ignore the action
+
+```haskell
+noop :: action -> Effect parent model action
+noop = const (pure ())
+```
+
+A no-op update function. Useful as a placeholder or for view-only components:
+
+```haskell
+myStaticComponent :: Component parent () Void
+myStaticComponent = component () noop viewFn
+```
+
+## Effect sequencing
+
+### `beforeAll` / `afterAll`
+
+```haskell
+beforeAll :: IO () -> Effect parent model action -> Effect parent model action
+afterAll  :: IO () -> Effect parent model action -> Effect parent model action
+```
+
+Adjoins an IO action before or after all IO collected by an `Effect`:
+
+```haskell
+-- Delay connecting a websocket by 100ms
+beforeAll (threadDelay 100000) $
+  websocketConnectJSON OnConnect OnClose OnOpen OnError
+
+-- Log when a websocket effect finishes
+afterAll (consoleLog "Done") $
+  websocketConnectJSON OnConnect OnClose OnOpen OnError
+```
+
+### `modifyAllIO`
+
+```haskell
+modifyAllIO :: (IO () -> IO ()) -> Effect parent model action -> Effect parent model action
+```
+
+The general version — wraps every scheduled IO action with a transformation. `beforeAll` and `afterAll` are both implemented in terms of `modifyAllIO`.
+
+## ComponentInfo — the Reader environment
+
+Inside `Effect`, `ask` returns a `ComponentInfo parent`:
+
+```haskell
+data ComponentInfo parent
+  = ComponentInfo
+  { _componentInfoId       :: ComponentId
+  , _componentInfoParentId :: ComponentId
+  , _componentInfoDOMRef   :: DOMRef
+  }
+```
+
+Three lenses are provided for accessing individual fields:
+
+```haskell
+componentInfoId       :: Lens (ComponentInfo parent) ComponentId
+componentInfoParentId :: Lens (ComponentInfo parent) ComponentId
+componentInfoDOMRef   :: Lens (ComponentInfo parent) DOMRef
+```
+
+Practical example — reading the component's own ID to send mail:
+
+```haskell
+update = \case
+  SendMessage -> do
+    compId <- view componentInfoId
+    io_ $ mail compId (toJSON ("ping" :: MisoString))
+```
+
+## Model state operations
+
+Because `Effect` has a `MonadState model` instance, all standard state operations are available:
+
+```haskell
+update = \case
+  MyAction1 -> do
+    field1 .= value1       -- set via Miso.Lens
+    counter += 1           -- increment
+  MyAction2 -> do
+    field2 %= f            -- modify
+    io_ $ do
+      consoleLog "Hello"
+      consoleLog "World!"
+```
+
+See `Miso.Lens` and `Miso.State` for the full set of state combinators.
+
+## The Sink type
+
+```haskell
+type Sink action = action -> IO ()
+```
+
+A `Sink` writes an `action` to the global event queue. The miso scheduler reads from this queue in FIFO order and calls `update` for each action. All `IO` actions passed to the scheduler are wrapped in exception handlers by the runtime.

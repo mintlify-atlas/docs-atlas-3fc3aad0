@@ -1,0 +1,128 @@
+---
+title: "Miso.String"
+description: "MisoString — the string type used throughout miso"
+---
+
+`Miso.String` defines `MisoString`, the primary string type used across all miso APIs. It is a type alias that resolves to different underlying types depending on the compilation target:
+
+- **JS / WASM backend** — `JSString` (from the `jsaddle` or GHCJS runtime)
+- **Server / prerender** — `Text` (from `Data.Text`)
+
+This lets you write backend-agnostic code that compiles under both targets without modification.
+
+## MisoString
+
+```haskell
+-- On the VANILLA (server) backend:
+type MisoString = Text
+
+-- On JS/WASM backends:
+type MisoString = JSString
+```
+
+## Conversion
+
+### ToMisoString
+
+```haskell
+-- | Convert any string-like type to MisoString
+class ToMisoString str where
+  toMisoString :: str -> MisoString
+
+-- | Shorthand for toMisoString
+ms :: ToMisoString str => str -> MisoString
+```
+
+Instances are provided for:
+
+| Type | Notes |
+|---|---|
+| `String` | via `pack` |
+| `Text` | direct |
+| `LT.Text` | via `LT.toStrict` |
+| `ByteString` | via UTF-8 decode |
+| `BL.ByteString` | via UTF-8 decode |
+| `B.Builder` | via `toLazyByteString` |
+| `Char` | via `singleton` |
+| `Int` | numeric `show` |
+| `Word` | numeric `show` |
+| `Float` | numeric `show` (uses Double internally) |
+| `Double` | numeric `show` |
+| `IOException` | via `show` |
+| `SomeException` | via `show` |
+| `Maybe a` (where `ToMisoString a`) | `Nothing` → `""`, `Just x` → `ms x` |
+
+### FromMisoString
+
+```haskell
+-- | Parse a MisoString back into a type.
+-- Like a safe Read for MisoString.
+class FromMisoString t where
+  fromMisoStringEither :: MisoString -> Either String t
+
+-- | Parse, throwing a runtime error on failure.
+-- Use fromMisoStringEither for safe parsing.
+fromMisoString :: FromMisoString a => MisoString -> a
+```
+
+Instances are provided for: `MisoString`, `Text`, `LT.Text`, `String`, `ByteString`, `BL.ByteString`, `B.Builder`, `Int`, `Word`, `Float`, `Double`.
+
+## Usage Examples
+
+```haskell
+import Miso.String
+
+-- Convert from String
+hello :: MisoString
+hello = ms "Hello, world!"
+
+-- Convert from Int
+countStr :: MisoString
+countStr = ms (42 :: Int)
+
+-- Convert from Text
+import qualified Data.Text as T
+fromText :: MisoString
+fromText = ms (T.pack "from text")
+
+-- Safe parsing
+parsed :: Either String Int
+parsed = fromMisoStringEither "123"
+-- Right 123
+
+badParse :: Either String Int
+badParse = fromMisoStringEither "abc"
+-- Left "fromMisoString Int: could not parse abc"
+
+-- Unsafe parsing (throws on failure)
+value :: Int
+value = fromMisoString "42"
+```
+
+## Working with MisoString
+
+Since `MisoString` is `Text` on the server backend, all `Data.Text` functions are available when compiling for prerendering. In your miso views, you will most commonly use `ms` to embed values:
+
+```haskell
+viewModel :: Model -> View Action
+viewModel model =
+  div_ []
+    [ text (ms (count model))        -- Int → MisoString
+    , text (ms (username model))     -- Text → MisoString
+    , input_ [ value_ (ms (draft model)) ]
+    ]
+```
+
+## Why MisoString Exists
+
+The browser JavaScript runtime has its own native string type (`JSString`). Operations on `JSString` are O(1) when passing strings to/from JavaScript. Using `Text` on the JS backend would require an extra UTF-16 conversion on every DOM interaction.
+
+By abstracting over this with `MisoString`, miso achieves:
+
+- **Zero-cost string interop** with the DOM on JS/WASM backends
+- **Full `Data.Text` compatibility** on the server backend for prerendering
+- **Single codebase** — no `#ifdef` in application code
+
+<Note>
+  When working in GHCi or server-side code, `MisoString` is `Text`. You can use any `Data.Text` function directly, or use `ms` to convert from other types.
+</Note>

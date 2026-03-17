@@ -1,0 +1,375 @@
+---
+title: "Miso.Effect"
+description: "The Effect monad for managing side effects"
+---
+
+The `Miso.Effect` module defines how a miso application manages side effects and subscriptions. The `Effect` monad is used in the `update` function to mutate the model and schedule `IO` actions.
+
+```haskell
+import Miso.Effect
+```
+
+<Note>
+  `IO` is never evaluated *inside* `Effect` — it is only scheduled. There is no `MonadIO` instance for `Effect`. The miso scheduler runs all scheduled `IO` after the model update completes.
+</Note>
+
+## Core types
+
+### `Effect`
+
+`Effect` is a type alias for an `RWS` monad. It provides:
+- **Reader** — access to `ComponentInfo` via `ask`
+- **Writer** — scheduled `IO` actions accumulated with `tell`
+- **State** — the current component `model` modified with `put`, `get`, `modify`, etc.
+
+```haskell
+type Effect parent model action
+  = RWS (ComponentInfo parent) [Schedule action] model ()
+```
+
+### `Sub`
+
+A long-running background process that writes to the component's event queue via a `Sink`.
+
+```haskell
+type Sub action = Sink action -> IO ()
+```
+
+```haskell
+timerSub :: Sub Action
+timerSub sink = forever $ threadDelay 1000000 >> sink Tick
+```
+
+### `Sink`
+
+A function that writes an `action` to the global event queue for processing by `update`.
+
+```haskell
+type Sink action = action -> IO ()
+```
+
+### `DOMRef`
+
+A reference to a live DOM element, backed by a JavaScript value.
+
+```haskell
+type DOMRef = JSVal
+```
+
+### `ComponentId`
+
+A numeric identifier for a component instance, assigned by the miso runtime.
+
+```haskell
+type ComponentId = Int
+```
+
+### `Schedule` and `Synchronicity`
+
+`Schedule` wraps a scheduled `IO` action along with whether it runs synchronously or asynchronously.
+
+```haskell
+data Schedule action = Schedule Synchronicity (Sink action -> IO ())
+
+data Synchronicity
+  = Async  -- ^ Default: run in a new thread
+  | Sync   -- ^ Block the render thread until complete
+  deriving (Show, Eq)
+```
+
+<Warning>
+  `Sync` will block the component's render thread. Use `Async` (via `io` / `io_`) for all non-critical effects.
+</Warning>
+
+### `ComponentInfo`
+
+Holds metadata about the currently running component. Accessible inside `Effect` via `ask` (from `MonadReader`).
+
+```haskell
+data ComponentInfo parent
+  = ComponentInfo
+  { _componentInfoId       :: ComponentId
+  , _componentInfoParentId :: ComponentId
+  , _componentInfoDOMRef   :: DOMRef
+  }
+```
+
+#### Lens accessors
+
+```haskell
+componentInfoId       :: Lens (ComponentInfo parent) ComponentId
+componentInfoParentId :: Lens (ComponentInfo parent) ComponentId
+componentInfoDOMRef   :: Lens (ComponentInfo parent) DOMRef
+```
+
+```haskell
+update = \case
+  SomeAction -> do
+    compId <- view componentInfoId
+    io_ $ consoleLog (ms compId)
+```
+
+### `mkComponentInfo`
+
+Smart constructor for `ComponentInfo`.
+
+```haskell
+mkComponentInfo
+  :: ComponentId
+  -> ComponentId  -- ^ parent ComponentId
+  -> DOMRef
+  -> ComponentInfo parent
+```
+
+## Asynchronous IO
+
+### `io`
+
+Schedules an `IO action` to run asynchronously. The action result is dispatched back to `update`.
+
+```haskell
+io
+  :: IO action
+  -> Effect parent model action
+```
+
+```haskell
+update = \case
+  FetchUser userId ->
+    io $ do
+      user <- getUser userId
+      pure (GotUser user)
+```
+
+### `io_`
+
+Like `io`, but discards the `IO` result. Use when you do not need to dispatch an action.
+
+```haskell
+io_
+  :: IO ()
+  -> Effect parent model action
+```
+
+```haskell
+update = \case
+  Log msg -> io_ $ consoleLog msg
+```
+
+### `withSink`
+
+The foundational combinator. Gives you direct access to the `Sink`, letting you dispatch actions from arbitrary callbacks (e.g. third-party JS widgets).
+
+```haskell
+withSink
+  :: (Sink action -> IO ())
+  -> Effect parent model action
+```
+
+```haskell
+update = \case
+  InitWidget -> withSink $ \sink ->
+    setupWidget (\event -> sink (WidgetEvent event))
+```
+
+### `for`
+
+Like `io`, but generalized to any `Foldable`. Useful when an `IO` action returns a `Maybe action` or `[action]`.
+
+```haskell
+for
+  :: Foldable f
+  => IO (f action)
+  -> Effect parent model action
+```
+
+```haskell
+update = \case
+  TryFetch -> for $ do
+    mResult <- fetchMaybe someUrl
+    pure mResult  -- dispatches action only if Just
+```
+
+## Synchronous IO
+
+### `sync`
+
+Schedules an `IO action` to run **synchronously**, blocking the render thread until complete.
+
+```haskell
+sync
+  :: IO action
+  -> Effect parent model action
+```
+
+### `sync_`
+
+Like `sync`, but discards the result.
+
+```haskell
+sync_
+  :: IO ()
+  -> Effect parent model action
+```
+
+<Warning>
+  `sync` and `sync_` block the component render thread. Use sparingly — prefer `io` and `io_` for most effects.
+</Warning>
+
+## Batching
+
+### `batch`
+
+Schedules multiple `IO` actions asynchronously, each dispatching a result action.
+
+```haskell
+batch
+  :: [IO action]
+  -> Effect parent model action
+```
+
+```haskell
+update = \case
+  LoadAll -> batch [ fetchA, fetchB, fetchC ]
+```
+
+### `batch_`
+
+Like `batch`, but discards results.
+
+```haskell
+batch_ :: [IO ()] -> Effect parent model action
+```
+
+## Issuing actions
+
+### `issue`
+
+Dispatches a new action directly to `update` without performing any `IO`.
+
+```haskell
+issue
+  :: action
+  -> Effect parent model action
+```
+
+```haskell
+update = \case
+  Click -> issue HelloWorld
+  HelloWorld -> io_ $ consoleLog "Hello!"
+```
+
+### `noop`
+
+A no-op update function. Use as a placeholder when you want to ignore some or all actions.
+
+```haskell
+noop :: action -> Effect parent model action
+noop = const (pure ())
+```
+
+```haskell
+myReadOnlyComponent :: Component parent model Action
+myReadOnlyComponent = component initialModel noop myView
+```
+
+## Operators
+
+### `(<#)`
+
+Smart constructor that sets the model and schedules a single asynchronous `IO action`.
+
+```haskell
+infixl 0 <#
+(<#) :: model -> IO action -> Effect parent model action
+```
+
+```haskell
+update = \case
+  Fetch -> newModel <# do
+    result <- fetchSomething
+    pure (GotResult result)
+```
+
+### `(#>)`
+
+`(<#)` with the arguments flipped.
+
+```haskell
+infixr 0 #>
+(#>) :: IO action -> model -> Effect parent model action
+```
+
+```haskell
+update = \case
+  Fetch -> do
+    result <- fetchSomething
+    pure (GotResult result) #> newModel
+```
+
+## Effect composition
+
+### `beforeAll`
+
+Prepends an `IO ()` action before all `IO` collected by an `Effect`.
+
+```haskell
+beforeAll :: IO () -> Effect parent model action -> Effect parent model action
+```
+
+```haskell
+-- Delay a websocket connection by 100ms
+beforeAll (threadDelay 100000) $ websocketConnect OnConnect
+```
+
+### `afterAll`
+
+Appends an `IO ()` action after all `IO` collected by an `Effect`.
+
+```haskell
+afterAll :: IO () -> Effect parent model action -> Effect parent model action
+```
+
+```haskell
+afterAll (consoleLog "done") $ websocketConnect OnConnect
+```
+
+### `modifyAllIO`
+
+Applies a transformation to every `IO` action collected by an `Effect`. `beforeAll` and `afterAll` are implemented using this function.
+
+```haskell
+modifyAllIO
+  :: (IO () -> IO ())
+  -> Effect parent model action
+  -> Effect parent model action
+```
+
+## Subscriptions
+
+### `mapSub`
+
+Transforms a `Sub a` into a `Sub b` using a mapping function. Useful for composing subscriptions across component boundaries.
+
+```haskell
+mapSub :: (a -> b) -> Sub a -> Sub b
+```
+
+```haskell
+mappedSub :: Sub ParentAction
+mappedSub = mapSub ChildAction childSub
+```
+
+## Internal
+
+### `runEffect`
+
+Unwraps an `Effect` into its component parts. Used internally by the miso runtime.
+
+```haskell
+runEffect
+  :: Effect parent model action
+  -> ComponentInfo parent
+  -> model
+  -> (model, [Schedule action])
+```

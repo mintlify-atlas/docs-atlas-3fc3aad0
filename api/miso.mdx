@@ -1,0 +1,238 @@
+---
+title: "Miso module"
+description: "The main Miso module — entry point for all miso applications"
+---
+
+The `Miso` module is the single import you need to build a miso application. It re-exports all core modules and provides the top-level functions for running your application.
+
+```haskell
+import Miso
+```
+
+<Card title="Hackage" icon="book" href="http://hackage.haskell.org/package/miso">
+  View the full Haskell package documentation on Hackage
+</Card>
+
+## Running an application
+
+Miso provides three top-level functions for running a `Component`. Choose based on whether you are doing a fresh draw or hydrating server-rendered HTML.
+
+### `startApp`
+
+Runs a miso application on an empty `<body>`. This is the recommended default for most applications.
+
+```haskell
+startApp
+  :: Eq model
+  => Events
+  -- ^ Globally delegated Events
+  -> App model action
+  -- ^ Component application
+  -> IO ()
+```
+
+<ParamField path="events" type="Events">
+  The set of events to delegate globally. Use `defaultEvents` for common browser events, or compose multiple event maps (e.g. `defaultEvents <> touchEvents`).
+</ParamField>
+
+<ParamField path="app" type="App model action">
+  A top-level `Component ROOT model action`. Use the `component` or `vcomp` smart constructor to build one.
+</ParamField>
+
+```haskell
+main :: IO ()
+main = startApp defaultEvents myApp
+```
+
+<Note>
+  `startApp` assumes `<body>` is empty. It will perform an initial draw of your component's `view`.
+</Note>
+
+### `miso`
+
+Like `startApp`, but performs **hydration** instead of drawing from scratch. Use this when the server has already rendered HTML into `<body>` and you want the client to take over.
+
+```haskell
+miso
+  :: Eq model
+  => Events
+  -- ^ Globally delegated Events
+  -> (URI -> App model action)
+  -- ^ The Component application, with the current URI as an argument
+  -> IO ()
+```
+
+<ParamField path="events" type="Events">
+  The set of globally delegated events.
+</ParamField>
+
+<ParamField path="f" type="URI -> App model action">
+  A function from the current page URI to a top-level `Component`. The URI is read from the browser at startup.
+</ParamField>
+
+```haskell
+main :: IO ()
+main = miso defaultEvents (\uri -> myApp uri)
+```
+
+<Tip>
+  Use `miso` together with server-side rendering (`Miso.Html.Render`) for isomorphic applications. The server renders HTML; the client hydrates it without a visible flash.
+</Tip>
+
+### `prerender`
+
+Like `miso` but discards the `URI` argument. Use this for hydration when you do not need URI-based routing.
+
+```haskell
+prerender
+  :: Eq model
+  => Events
+  -- ^ Globally delegated Events
+  -> App model action
+  -- ^ Component application
+  -> IO ()
+```
+
+```haskell
+main :: IO ()
+main = prerender defaultEvents myApp
+```
+
+### `renderApp`
+
+Runs miso with a custom rendering engine identified by a JavaScript global object name. Used for native/mobile targets such as [miso-lynx](https://github.com/haskell-miso/miso-lynx).
+
+```haskell
+renderApp
+  :: Eq model
+  => Events
+  -- ^ Globally delegated Events
+  -> MisoString
+  -- ^ Name of the JS object that contains the drawing context
+  -> App model action
+  -- ^ Component application
+  -> IO ()
+```
+
+### `(🍜)`
+
+Alias for `miso`.
+
+```haskell
+(🍜)
+  :: Eq model
+  => Events
+  -> (URI -> App model action)
+  -> IO ()
+```
+
+## Events
+
+`defaultEvents` is a predefined `Events` map containing the most commonly used browser events. Pass it as the first argument to `startApp`, `miso`, or `prerender`.
+
+```haskell
+defaultEvents :: Events
+```
+
+Additional event sets can be composed with `(<>)`:
+
+```haskell
+main :: IO ()
+main = startApp (defaultEvents <> touchEvents) myApp
+```
+
+Define a custom event set:
+
+```haskell
+touchEvents :: Events
+touchEvents = M.fromList
+  [ ("touchstart",  BUBBLE)
+  , ("touchcancel", BUBBLE)
+  , ("touchmove",   BUBBLE)
+  , ("touchend",    BUBBLE)
+  ]
+```
+
+## Re-exported modules
+
+The `Miso` module re-exports the following modules. You can import them individually if you want finer-grained control.
+
+<AccordionGroup>
+  <Accordion title="Miso.Binding">
+    Primitives for synchronizing parent and child models via lenses.
+  </Accordion>
+  <Accordion title="Miso.DSL">
+    A JavaScript DSL for FFI interoperability — `ToJSVal`, `FromJSVal`, `jsg`, and related functions.
+  </Accordion>
+  <Accordion title="Miso.Effect">
+    The `Effect` monad, `Sub`, `Sink`, and all combinators for managing side effects.
+  </Accordion>
+  <Accordion title="Miso.Event">
+    Component lifecycle events (`onCreated`, `onDestroyed`, etc.) and event handler combinators.
+  </Accordion>
+  <Accordion title="Miso.Fetch">
+    Interface to the browser Fetch API for HTTP requests.
+  </Accordion>
+  <Accordion title="Miso.PubSub">
+    Publish/Subscribe primitives for inter-component communication.
+  </Accordion>
+  <Accordion title="Miso.Property">
+    Construct custom properties on DOM elements.
+  </Accordion>
+  <Accordion title="Miso.Reload">
+    Support for clearing the page during live-reloading in WASM browser mode.
+  </Accordion>
+  <Accordion title="Miso.Subscription">
+    Subscriptions for external events: mouse, keyboard, window, history, and more.
+  </Accordion>
+  <Accordion title="Miso.Storage">
+    Web Storage API — Local and Session storage interface.
+  </Accordion>
+  <Accordion title="Miso.Types">
+    Core types: `Component`, `App`, `View`, `Attribute`, `Namespace`, `Key`, `URI`, `LogLevel`, `CSS`, `JS`, and smart constructors.
+  </Accordion>
+  <Accordion title="Miso.Util">
+    Utility functions for views, parsing, and general-purpose combinators.
+  </Accordion>
+  <Accordion title="Miso.FFI">
+    Foreign Function Interface utilities for interacting with JavaScript.
+  </Accordion>
+  <Accordion title="Miso.State">
+    State management helpers for miso applications.
+  </Accordion>
+</AccordionGroup>
+
+## Minimal example
+
+A complete counter application:
+
+```haskell
+module Main where
+
+import Miso
+import Miso.Lens
+import qualified Miso.Html.Element   as H
+import qualified Miso.Html.Event     as HE
+import qualified Miso.Html.Property  as HP
+
+data Action = Add | Subtract
+  deriving (Eq, Show)
+
+counter :: App Int Action
+counter = component 0 update view
+  where
+    update :: Action -> Effect ROOT Int Action
+    update = \case
+      Add      -> this += 1
+      Subtract -> this -= 1
+
+    view :: Int -> View Int Action
+    view x = H.div_
+      [ H.button_ [ HE.onClick Add,      HP.id_ "add"      ] [ "+" ]
+      , text (ms x)
+      , H.button_ [ HE.onClick Subtract, HP.id_ "subtract" ] [ "-" ]
+      ]
+
+main :: IO ()
+main = startApp defaultEvents counter
+```

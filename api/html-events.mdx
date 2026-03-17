@@ -1,0 +1,354 @@
+---
+title: "HTML events"
+description: "Event handlers in Miso.Html.Event"
+---
+
+`Miso.Html.Event` provides event handler constructors for all standard browser events. Each handler produces an `Attribute action` that you include in an element's attribute list.
+
+## How event handlers work
+
+```haskell
+onClick :: action -> Attribute action
+```
+
+Handlers that capture data from the event (such as the typed value in an input) take a function:
+
+```haskell
+onInput :: (MisoString -> action) -> Attribute action
+onKeyDown :: (KeyCode -> action) -> Attribute action
+```
+
+The resulting `Attribute action` is wired into miso's event delegation system, which routes DOM events to the corresponding Haskell handlers through the `update` function.
+
+```haskell
+data Action = Clicked | TextChanged MisoString
+
+example :: View model Action
+example = div_ []
+  [ button_ [ onClick Clicked ] [ "Click me" ]
+  , input_ [ onInput TextChanged, placeholder_ "Type here" ]
+  ]
+```
+
+## Mouse events
+
+```haskell
+onClick           :: action -> Attribute action
+onClickPrevent    :: action -> Attribute action  -- with preventDefault
+onClickCapture    :: action -> Attribute action  -- capture phase
+onClickWith       :: (DOMRef -> action) -> Attribute action  -- passes DOM reference
+onClickWithOptions :: Options -> action -> Attribute action
+
+onDoubleClick            :: action -> Attribute action
+onDoubleClickWith        :: (DOMRef -> action) -> Attribute action
+onDoubleClickWithOptions :: Options -> action -> Attribute action
+
+onMouseDown  :: action -> Attribute action
+onMouseUp    :: action -> Attribute action
+onMouseEnter :: action -> Attribute action
+onMouseLeave :: action -> Attribute action
+onMouseOver  :: action -> Attribute action
+onMouseOut   :: action -> Attribute action
+
+onContextMenuWithOptions :: Options -> action -> Attribute action
+```
+
+`onClickWith` passes a `DOMRef` to your action, giving you a reference to the clicked DOM node (similar to `getElementById`):
+
+```haskell
+data Action = FocusInput DOMRef
+
+focusButton :: View model Action
+focusButton = button_ [ onClickWith FocusInput ] [ "Focus input" ]
+```
+
+Use `onClickWithOptions` (or `onContextMenuWithOptions`) to control event propagation and default browser behavior:
+
+```haskell
+-- Prevent right-click context menu
+noContextMenu :: View model action -> View model action
+noContextMenu child = div_ [ onContextMenuWithOptions NoOp defaultOptions { preventDefault = False } ] [ child ]
+```
+
+## Keyboard events
+
+```haskell
+onKeyDown        :: (KeyCode -> action) -> Attribute action
+onKeyDownWithInfo :: (KeyInfo -> action) -> Attribute action  -- includes modifier keys
+onKeyPress       :: (KeyCode -> action) -> Attribute action
+onKeyUp          :: (KeyCode -> action) -> Attribute action
+
+onEnter
+  :: action   -- ^ action when keydown is NOT Enter (key code 13)
+  -> action   -- ^ action when keydown IS Enter (key code 13)
+  -> Attribute action
+```
+
+`KeyCode` is an `Int` representing the key code. `KeyInfo` provides additional information including modifier key state.
+
+`onEnter` is a convenience wrapper around `onKeyDown` for the common case of responding to the Enter key:
+
+```haskell
+data Action = NoOp | SubmitSearch
+
+searchBox :: View model Action
+searchBox = input_
+  [ type_ "search"
+  , onEnter NoOp SubmitSearch
+  ]
+```
+
+```haskell
+data Action = KeyPressed KeyCode
+
+keyLogger :: View model Action
+keyLogger = input_
+  [ type_ "text"
+  , onKeyDown KeyPressed
+  ]
+```
+
+## Form events
+
+```haskell
+onInput   :: (MisoString -> action) -> Attribute action
+onChange  :: (MisoString -> action) -> Attribute action
+onChangeWith :: (MisoString -> DOMRef -> action) -> Attribute action
+onChecked :: (Checked -> action) -> Attribute action
+onSubmit  :: action -> Attribute action
+```
+
+<Note>
+`onSubmit` sets `preventDefault = True` by default, preventing the form from submitting to the server.
+</Note>
+
+`onInput` fires on every keystroke; `onChange` fires when the element loses focus after the value has changed. `onChecked` is for checkboxes and radio buttons and passes a `Checked` value.
+
+```haskell
+data Action
+  = UpdateEmail MisoString
+  | ToggleRemember Checked
+  | Submit
+
+loginForm :: View model Action
+loginForm = form_ [ onSubmit Submit ]
+  [ input_ [ type_ "email", onInput UpdateEmail, placeholder_ "Email" ]
+  , label_ []
+    [ input_ [ type_ "checkbox", onChecked ToggleRemember ]
+    , " Remember me"
+    ]
+  , button_ [ type_ "submit" ] [ "Log in" ]
+  ]
+```
+
+## Focus events
+
+```haskell
+onFocus :: action -> Attribute action
+onBlur  :: action -> Attribute action
+```
+
+```haskell
+data Action = InputFocused | InputBlurred
+
+trackedInput :: View model Action
+trackedInput = input_
+  [ onFocus InputFocused
+  , onBlur InputBlurred
+  , placeholder_ "Focus me"
+  ]
+```
+
+## Drag events
+
+```haskell
+onDrag            :: action -> Attribute action
+onDragWithOptions :: Options -> action -> Attribute action
+
+onDragStart            :: action -> Attribute action
+onDragStartWithOptions :: Options -> action -> Attribute action
+
+onDragEnd            :: action -> Attribute action
+onDragEndWithOptions :: Options -> action -> Attribute action
+
+onDragEnter            :: action -> Attribute action
+onDragEnterWithOptions :: Options -> action -> Attribute action
+
+onDragLeave            :: action -> Attribute action
+onDragLeaveWithOptions :: Options -> action -> Attribute action
+
+onDragOver            :: action -> Attribute action
+onDragOverWithOptions :: Options -> action -> Attribute action
+
+onDrop            :: Options -> action -> Attribute action
+onDropWithOptions :: Options -> action -> Attribute action
+```
+
+```haskell
+data Action = DragStarted | Dropped | DraggedOver
+
+dropZone :: View model Action
+dropZone = div_
+  [ onDragOver DraggedOver
+  , onDrop defaultOptions Dropped
+  , class_ "drop-zone"
+  ]
+  [ "Drop files here" ]
+
+draggableItem :: View model Action
+draggableItem = div_
+  [ draggable_ True
+  , onDragStart DragStarted
+  , class_ "draggable"
+  ]
+  [ "Drag me" ]
+```
+
+## Select events
+
+```haskell
+onSelect :: (MisoString -> action) -> Attribute action
+```
+
+Fires when text within an input or textarea is selected. Passes the current value of the element.
+
+## Pointer events
+
+```haskell
+onPointerDown   :: (PointerEvent -> action) -> Attribute action
+onPointerUp     :: (PointerEvent -> action) -> Attribute action
+onPointerEnter  :: (PointerEvent -> action) -> Attribute action
+onPointerLeave  :: (PointerEvent -> action) -> Attribute action
+onPointerOver   :: (PointerEvent -> action) -> Attribute action
+onPointerOut    :: (PointerEvent -> action) -> Attribute action
+onPointerMove   :: (PointerEvent -> action) -> Attribute action
+onPointerCancel :: (PointerEvent -> action) -> Attribute action
+```
+
+Pointer events unify mouse, touch, and stylus input. Each handler receives a `PointerEvent` value with coordinates and pointer metadata.
+
+## Touch events
+
+```haskell
+onTouchStart            :: action -> Attribute action
+onTouchStartWithOptions :: Options -> action -> Attribute action
+
+onTouchEnd            :: action -> Attribute action
+onTouchEndWithOptions :: Options -> action -> Attribute action
+
+onTouchMove            :: action -> Attribute action
+onTouchMoveWithOptions :: Options -> action -> Attribute action
+
+onTouchCancel            :: action -> Attribute action
+onTouchCancelWithOptions :: Options -> action -> Attribute action
+```
+
+## Media events
+
+Media events fire on `<audio>` and `<video>` elements. Each event has a simple form (taking a plain `action`) and a `With` form (taking a `Media -> action` callback that receives the media element reference):
+
+```haskell
+onAbort           :: action -> Attribute action
+onAbortWith       :: (Media -> action) -> Attribute action
+
+onCanPlay         :: action -> Attribute action
+onCanPlayWith     :: (Media -> action) -> Attribute action
+
+onCanPlayThrough     :: action -> Attribute action
+onCanPlayThroughWith :: (Media -> action) -> Attribute action
+
+onDurationChange     :: action -> Attribute action
+onDurationChangeWith :: (Media -> action) -> Attribute action
+
+onEmptied     :: action -> Attribute action
+onEmptiedWith :: (Media -> action) -> Attribute action
+
+onEnded     :: action -> Attribute action
+onEndedWith :: (Media -> action) -> Attribute action
+
+onError     :: action -> Attribute action
+onErrorWith :: (Media -> action) -> Attribute action
+
+onLoad   :: action -> Attribute action
+onUnload :: action -> Attribute action
+
+onLoadedData     :: action -> Attribute action
+onLoadedDataWith :: (Media -> action) -> Attribute action
+
+onLoadedMetadata     :: action -> Attribute action
+onLoadedMetadataWith :: (Media -> action) -> Attribute action
+
+onLoadStart     :: action -> Attribute action
+onLoadStartWith :: (Media -> action) -> Attribute action
+
+onPause     :: action -> Attribute action
+onPauseWith :: (Media -> action) -> Attribute action
+
+onPlay     :: action -> Attribute action
+onPlayWith :: (Media -> action) -> Attribute action
+
+onPlaying     :: action -> Attribute action
+onPlayingWith :: (Media -> action) -> Attribute action
+
+onProgress     :: action -> Attribute action
+onProgressWith :: (Media -> action) -> Attribute action
+
+onRateChange     :: action -> Attribute action
+onRateChangeWith :: (Media -> action) -> Attribute action
+
+onSeeked     :: action -> Attribute action
+onSeekedWith :: (Media -> action) -> Attribute action
+
+onSeeking     :: action -> Attribute action
+onSeekingWith :: (Media -> action) -> Attribute action
+
+onStalled     :: action -> Attribute action
+onStalledWith :: (Media -> action) -> Attribute action
+
+onSuspend     :: action -> Attribute action
+onSuspendWith :: (Media -> action) -> Attribute action
+
+onTimeUpdate     :: action -> Attribute action
+onTimeUpdateWith :: (Media -> action) -> Attribute action
+
+onVolumeChange     :: action -> Attribute action
+onVolumeChangeWith :: (Media -> action) -> Attribute action
+
+onWaiting     :: action -> Attribute action
+onWaitingWith :: (Media -> action) -> Attribute action
+```
+
+```haskell
+data Action = MediaEnded | MediaError | PlaybackStarted
+
+audioPlayer :: MisoString -> View model Action
+audioPlayer url = audio_ [ controls_ True ]
+  [ source_ [ src_ url, type_ "audio/mpeg" ]
+  , onEnded MediaEnded
+  , onError MediaError
+  , onPlay PlaybackStarted
+  ]
+```
+
+<Note>
+Media event handlers attached to the `<audio>` or `<video>` element itself (not to `<source>`) are the recommended approach for tracking playback state.
+</Note>
+
+## Event options
+
+Several handlers accept an `Options` value to control event propagation:
+
+```haskell
+onClickWithOptions       :: Options -> action -> Attribute action
+onDoubleClickWithOptions :: Options -> action -> Attribute action
+onDrop                   :: Options -> action -> Attribute action
+onDragWithOptions        :: Options -> action -> Attribute action
+-- ...and many more
+```
+
+Use the `preventDefault` and `stopPropagation` records from `Miso.Event` to construct options:
+
+```haskell
+-- Prevent default AND stop propagation
+button_ [ onClickWithOptions (preventDefault <> stopPropagation) MyAction ] [ "Click" ]
+```

@@ -1,0 +1,205 @@
+---
+title: "Miso.Svg"
+description: "SVG rendering support in miso"
+---
+
+`Miso.Svg` provides SVG element constructors and events. SVG elements are rendered in the `http://www.w3.org/2000/svg` namespace, so they can be embedded directly in your miso HTML views.
+
+```haskell
+import Miso
+import Miso.Svg
+```
+
+## Quick Example
+
+```haskell
+import Miso
+import Miso.Svg
+import Miso.Svg.Element
+
+myIcon :: View action
+myIcon =
+  svg_ [ height_ "100", width_ "100" ]
+    [ circle_
+        [ cx_ "50", cy_ "50", r_ "40"
+        , stroke_ "green", strokeWidth_ "4", fill_ "yellow"
+        ]
+        []
+    ]
+```
+
+## Elements
+
+### Root
+
+```haskell
+-- | <svg> root element
+svg_ :: [Attribute action] -> [View model action] -> View model action
+```
+
+### Graphics
+
+```haskell
+circle_   :: [Attribute action] -> [View model action] -> View model action
+ellipse_  :: [Attribute action] -> [View model action] -> View model action
+image_    :: [Attribute action] -> [View model action] -> View model action
+line_     :: [Attribute action] -> [View model action] -> View model action
+path_     :: [Attribute action] -> [View model action] -> View model action
+polygon_  :: [Attribute action] -> [View model action] -> View model action
+polyline_ :: [Attribute action] -> [View model action] -> View model action
+rect_     :: [Attribute action] -> [View model action] -> View model action
+use_      :: [Attribute action] -> [View model action] -> View model action
+```
+
+### Containers
+
+```haskell
+defs_    :: [Attribute action] -> [View model action] -> View model action
+g_       :: [Attribute action] -> [View model action] -> View model action
+marker_  :: [Attribute action] -> [View model action] -> View model action
+mask_    :: [Attribute action] -> [View model action] -> View model action
+pattern_ :: [Attribute action] -> [View model action] -> View model action
+switch_  :: [Attribute action] -> [View model action] -> View model action
+symbol_  :: [Attribute action] -> [View model action] -> View model action
+```
+
+### Text
+
+```haskell
+text_     :: [Attribute action] -> [View model action] -> View model action
+textPath_ :: [Attribute action] -> [View model action] -> View model action
+tspan_    :: [Attribute action] -> [View model action] -> View model action
+```
+
+### Gradients
+
+```haskell
+linearGradient_ :: [Attribute action] -> [View model action] -> View model action
+radialGradient_ :: [Attribute action] -> [View model action] -> View model action
+stop_           :: [Attribute action] -> [View model action] -> View model action
+```
+
+### Animation
+
+```haskell
+animate_          :: [Attribute action] -> [View model action] -> View model action
+animateMotion_    :: [Attribute action] -> [View model action] -> View model action
+animateTransform_ :: [Attribute action] -> [View model action] -> View model action
+mpath_            :: [Attribute action] -> [View model action] -> View model action
+set_              :: [Attribute action] -> [View model action] -> View model action
+```
+
+### Filters
+
+```haskell
+feBlend_              :: [Attribute action] -> [View model action] -> View model action
+feColorMatrix_        :: [Attribute action] -> [View model action] -> View model action
+feComponentTransfer_  :: [Attribute action] -> [View model action] -> View model action
+feComposite_          :: [Attribute action] -> [View model action] -> View model action
+feConvolveMatrix_     :: [Attribute action] -> [View model action] -> View model action
+feDiffuseLighting_    :: [Attribute action] -> [View model action] -> View model action
+feDisplacementMap_    :: [Attribute action] -> [View model action] -> View model action
+feDropShadow_         :: [Attribute action] -> [View model action] -> View model action
+feFlood_              :: [Attribute action] -> [View model action] -> View model action
+feFuncA_              :: [Attribute action] -> [View model action] -> View model action
+feFuncB_              :: [Attribute action] -> [View model action] -> View model action
+feFuncG_              :: [Attribute action] -> [View model action] -> View model action
+feFuncR_              :: [Attribute action] -> [View model action] -> View model action
+feGaussianBlur_       :: [Attribute action] -> [View model action] -> View model action
+feImage_              :: [Attribute action] -> [View model action] -> View model action
+feMerge_              :: [Attribute action] -> [View model action] -> View model action
+feMergeNode_          :: [Attribute action] -> [View model action] -> View model action
+feMorphology_         :: [Attribute action] -> [View model action] -> View model action
+feOffset_             :: [Attribute action] -> [View model action] -> View model action
+feSpecularLighting_   :: [Attribute action] -> [View model action] -> View model action
+feTile_               :: [Attribute action] -> [View model action] -> View model action
+feTurbulence_         :: [Attribute action] -> [View model action] -> View model action
+```
+
+### Light Sources
+
+```haskell
+feDistantLight_ :: [Attribute action] -> [View model action] -> View model action
+fePointLight_   :: [Attribute action] -> [View model action] -> View model action
+feSpotLight_    :: [Attribute action] -> [View model action] -> View model action
+```
+
+### Descriptive
+
+```haskell
+desc_     :: [Attribute action] -> [View model action] -> View model action
+metadata_ :: [Attribute action] -> [View model action] -> View model action
+title_    :: [Attribute action] -> [View model action] -> View model action
+```
+
+### Miscellaneous
+
+```haskell
+clipPath_     :: [Attribute action] -> [View model action] -> View model action
+filter_       :: [Attribute action] -> [View model action] -> View model action
+foreignObject_ :: [Attribute action] -> [View model action] -> View model action
+script_       :: [Attribute action] -> [View model action] -> View model action
+style_        :: [Attribute action] -> [View model action] -> View model action
+view_         :: [Attribute action] -> [View model action] -> View model action
+```
+
+## SVG Properties
+
+SVG attributes are plain `Attribute action` values from `Miso.Svg.Property`. Common ones include:
+
+```haskell
+viewBox_      :: MisoString -> Attribute action
+width_        :: MisoString -> Attribute action
+height_       :: MisoString -> Attribute action
+fill_         :: MisoString -> Attribute action
+stroke_       :: MisoString -> Attribute action
+strokeWidth_  :: MisoString -> Attribute action
+cx_           :: MisoString -> Attribute action
+cy_           :: MisoString -> Attribute action
+r_            :: MisoString -> Attribute action
+d_            :: MisoString -> Attribute action  -- path data
+x_            :: MisoString -> Attribute action
+y_            :: MisoString -> Attribute action
+transform_    :: MisoString -> Attribute action
+opacity_      :: MisoString -> Attribute action
+```
+
+## SVG Events
+
+SVG elements support the same event attributes as HTML elements (`onClick_`, `onMouseEnter_`, etc.) through `Miso.Svg.Event`.
+
+## Embedding in HTML
+
+SVG elements can be placed anywhere in your HTML view tree:
+
+```haskell
+viewModel :: Model -> View Action
+viewModel model =
+  div_ [ class_ "container" ]
+    [ h1_ [] [ "SVG Demo" ]
+    , svg_ [ width_ "200", height_ "200", viewBox_ "0 0 200 200" ]
+        [ -- Background
+          rect_ [ x_ "0", y_ "0", width_ "200", height_ "200", fill_ "lightgray" ] []
+          -- A triangle
+        , polygon_
+            [ points_ "100,20 180,180 20,180"
+            , fill_ "steelblue"
+            , stroke_ "navy"
+            , strokeWidth_ "3"
+            ]
+            []
+          -- Centered text
+        , text_
+            [ x_ "100", y_ "105"
+            , textAnchor_ "middle"
+            , fill_ "white"
+            , fontSize_ "16"
+            ]
+            [ "Hello SVG" ]
+        ]
+    ]
+```
+
+<Note>
+  All SVG element constructors produce nodes in the SVG namespace (`http://www.w3.org/2000/svg`). This is handled automatically — you do not need to set any namespace attribute yourself.
+</Note>

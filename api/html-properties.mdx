@@ -1,0 +1,360 @@
+---
+title: "HTML properties"
+description: "DOM properties and attributes in Miso.Html.Property"
+---
+
+`Miso.Html.Property` provides combinators for setting DOM properties and attributes on virtual DOM nodes. All functions produce an `Attribute action` value.
+
+## How properties work
+
+```haskell
+id_ :: MisoString -> Attribute action
+```
+
+Properties are passed as the first argument to any element constructor:
+
+```haskell
+div_ [ id_ "main", class_ "container" ] [ text "Hello" ]
+```
+
+## Properties vs attributes
+
+Miso distinguishes between DOM *properties* (set on the JavaScript object) and HTML *attributes* (set as strings in the markup). Most combinators in this module set DOM properties directly — for example, `value_` sets the `value` property on an input element, which controls the *current* value rather than the initial attribute.
+
+The underlying constructors:
+
+```haskell
+-- Set a string property on the DOM node
+textProp :: MisoString -> MisoString -> Attribute action
+
+-- Set a boolean property on the DOM node
+boolProp :: MisoString -> Bool -> Attribute action
+
+-- Set a numeric property on the DOM node
+doubleProp :: MisoString -> Double -> Attribute action
+```
+
+These are from `Miso.Property` and you can use them directly for properties not covered by the named combinators.
+
+## Class and identity
+
+```haskell
+-- Set the className property (both are equivalent)
+class_     :: MisoString -> Attribute action
+className  :: MisoString -> Attribute action
+
+-- Set multiple space-separated classes from a list
+classes_   :: [MisoString] -> Attribute action
+
+-- Set classes conditionally
+classList_ :: [(MisoString, Bool)] -> Attribute action
+
+-- Set the id property
+id_        :: MisoString -> Attribute action
+```
+
+```haskell
+div_
+  [ id_ "sidebar"
+  , classList_
+    [ ("sidebar", True)
+    , ("sidebar--collapsed", isCollapsed)
+    , ("sidebar--dark", isDark)
+    ]
+  ]
+  [ text "Sidebar content" ]
+```
+
+<Note>
+`class_` and `className` are identical — both set the `className` DOM property and both ultimately use the `ClassList` attribute constructor. `classList_` enables conditional class application without string concatenation.
+</Note>
+
+## Global attributes
+
+```haskell
+title_      :: MisoString -> Attribute action  -- tooltip text
+hidden_     :: Bool -> Attribute action
+inert_      :: Bool -> Attribute action
+lang_       :: MisoString -> Attribute action
+role_       :: MisoString -> Attribute action  -- ARIA role
+draggable_  :: Bool -> Attribute action
+tabindex_   :: MisoString -> Attribute action
+open_       :: Bool -> Attribute action  -- for <details>
+```
+
+## Form properties
+
+```haskell
+type_         :: MisoString -> Attribute action
+value_        :: MisoString -> Attribute action
+defaultValue_ :: MisoString -> Attribute action
+placeholder_  :: MisoString -> Attribute action
+checked_      :: Bool -> Attribute action
+disabled_     :: Attribute action              -- takes no argument
+readonly_     :: Bool -> Attribute action
+required_     :: Bool -> Attribute action
+multiple_     :: Bool -> Attribute action
+selected_     :: Bool -> Attribute action
+autofocus_    :: Bool -> Attribute action
+autocomplete_ :: Bool -> Attribute action
+autosave_     :: MisoString -> Attribute action
+autocorrect_  :: Bool -> Attribute action
+spellcheck_   :: Bool -> Attribute action
+noValidate_   :: Bool -> Attribute action
+name_         :: MisoString -> Attribute action
+for_          :: MisoString -> Attribute action  -- label's for attribute
+form_         :: MisoString -> Attribute action  -- form owner reference
+accept_       :: MisoString -> Attribute action
+acceptCharset_ :: MisoString -> Attribute action
+action_       :: MisoString -> Attribute action
+enctype_      :: MisoString -> Attribute action
+method_       :: MisoString -> Attribute action
+pattern_      :: MisoString -> Attribute action
+size_         :: MisoString -> Attribute action
+maxlength_    :: MisoString -> Attribute action
+minlength_    :: MisoString -> Attribute action
+min_          :: MisoString -> Attribute action
+max_          :: MisoString -> Attribute action
+step_         :: MisoString -> Attribute action
+cols_         :: MisoString -> Attribute action
+rows_         :: MisoString -> Attribute action
+wrap_         :: MisoString -> Attribute action
+list_         :: MisoString -> Attribute action
+reversed_     :: Bool -> Attribute action
+```
+
+<Note>
+`disabled_` takes no argument — it always sets `disabled` to `True`. To conditionally disable an element, use `optionalAttrs`:
+
+```haskell
+button_ (optionalAttrs isDisabled [ disabled_ ]) [ "Submit" ]
+```
+</Note>
+
+```haskell
+data Action = UpdateEmail MisoString | UpdatePassword MisoString | Submit
+
+loginForm :: MisoString -> MisoString -> Bool -> View model Action
+loginForm email password isLoading = form_ [ onSubmit Submit ]
+  [ label_ [ for_ "email" ] [ "Email" ]
+  , input_
+    [ id_ "email"
+    , type_ "email"
+    , value_ email
+    , onInput UpdateEmail
+    , placeholder_ "you@example.com"
+    , required_ True
+    , autocomplete_ True
+    ]
+  , label_ [ for_ "password" ] [ "Password" ]
+  , input_
+    [ id_ "password"
+    , type_ "password"
+    , value_ password
+    , onInput UpdatePassword
+    , minlength_ "8"
+    ]
+  , button_ ([ type_ "submit" ] ++ [ disabled_ | isLoading ]) [ "Log in" ]
+  ]
+```
+
+## Link and navigation
+
+```haskell
+href_       :: MisoString -> Attribute action
+target_     :: MisoString -> Attribute action
+download_   :: MisoString -> Attribute action
+downloadAs_ :: MisoString -> Attribute action
+hreflang_   :: MisoString -> Attribute action
+rel_        :: MisoString -> Attribute action
+ping_       :: MisoString -> Attribute action
+ref_        :: MisoString -> Attribute action
+```
+
+```haskell
+externalLink :: MisoString -> MisoString -> View model action
+externalLink url label = a_
+  [ href_ url
+  , target_ "_blank"
+  , rel_ "noopener noreferrer"
+  ]
+  [ text label ]
+```
+
+## Media properties
+
+```haskell
+src_                :: MisoString -> Attribute action
+alt_                :: MisoString -> Attribute action
+height_             :: MisoString -> Attribute action
+width_              :: MisoString -> Attribute action
+loading_            :: MisoString -> Attribute action
+autoplay_           :: Bool -> Attribute action
+controls_           :: Bool -> Attribute action
+loop_               :: Bool -> Attribute action
+muted_              :: Bool -> Attribute action
+poster_             :: MisoString -> Attribute action
+preload_            :: MisoString -> Attribute action
+volume_             :: Double -> Attribute action
+currentTime_        :: Double -> Attribute action
+defaultMuted_       :: Bool -> Attribute action
+defaultPlaybackRate_ :: Double -> Attribute action
+playbackRate_       :: Double -> Attribute action
+seeking_            :: Bool -> Attribute action
+mediaGroup_         :: MisoString -> Attribute action
+```
+
+```haskell
+lazyImage :: MisoString -> MisoString -> View model action
+lazyImage url altText = img_
+  [ src_ url
+  , alt_ altText
+  , loading_ "lazy"
+  , width_ "800"
+  , height_ "600"
+  ]
+```
+
+## Table properties
+
+```haskell
+colspan_ :: MisoString -> Attribute action
+rowspan_ :: MisoString -> Attribute action
+headers_ :: MisoString -> Attribute action
+scope_   :: MisoString -> Attribute action
+align_   :: MisoString -> Attribute action
+```
+
+## Script and meta properties
+
+```haskell
+async_     :: Bool -> Attribute action
+defer_     :: Bool -> Attribute action
+charset_   :: MisoString -> Attribute action
+content_   :: MisoString -> Attribute action
+httpEquiv_ :: MisoString -> Attribute action
+language_  :: MisoString -> Attribute action
+scoped_    :: MisoString -> Attribute action
+```
+
+## Iframe properties
+
+```haskell
+sandbox_     :: MisoString -> Attribute action
+seamless_    :: MisoString -> Attribute action
+srcdoc_      :: MisoString -> Attribute action
+frameborder_ :: MisoString -> Attribute action
+scrolling_   :: MisoString -> Attribute action
+```
+
+## Image map
+
+```haskell
+ismap_  :: Bool -> Attribute action
+usemap_ :: MisoString -> Attribute action
+shape_  :: MisoString -> Attribute action
+coords_ :: MisoString -> Attribute action
+```
+
+## Track and source
+
+```haskell
+kind_    :: MisoString -> Attribute action
+srclang_ :: MisoString -> Attribute action
+default_ :: Bool -> Attribute action
+media_   :: MisoString -> Attribute action
+```
+
+## Data attributes
+
+Set arbitrary `data-*` attributes:
+
+```haskell
+data_ :: MisoString -> MisoString -> Attribute action
+```
+
+```haskell
+-- Renders as: data-user-id="42"
+div_ [ data_ "user-id" "42" ] []
+
+-- Renders as: data-component="card"
+div_ [ data_ "component" "card" ] []
+```
+
+## ARIA attributes
+
+Set arbitrary `aria-*` attributes:
+
+```haskell
+aria_ :: MisoString -> MisoString -> Attribute action
+```
+
+```haskell
+-- aria-label
+button_ [ aria_ "label" "Close dialog" ] [ "×" ]
+
+-- aria-expanded
+nav_ [ aria_ "expanded" "true" ] [ ]
+
+-- aria-hidden
+span_ [ aria_ "hidden" "true", class_ "icon" ] [ ]
+```
+
+## Inline styles
+
+Inline styles are set using the `Styles` attribute constructor (via `Miso.Property.style_` or directly). Styles are a `Map MisoString MisoString`:
+
+```haskell
+import qualified Data.Map.Strict as Map
+
+coloredBox :: MisoString -> View model action
+coloredBox color = div_
+  [ Styles (Map.fromList
+    [ ("background-color", color)
+    , ("width", "100px")
+    , ("height", "100px")
+    , ("border-radius", "4px")
+    ])
+  ]
+  []
+```
+
+During server-side rendering, styles are serialized as: `style="background-color:red;width:100px;"`.
+
+## Namespace
+
+```haskell
+xmlns_ :: MisoString -> Attribute action
+```
+
+Used when embedding SVG or MathML inline:
+
+```haskell
+svg_ [ xmlns_ "http://www.w3.org/2000/svg", width_ "100", height_ "100" ] []
+```
+
+## Other
+
+```haskell
+formation_ :: MisoString -> Attribute action
+label_     :: MisoString -> Attribute action  -- e.g. for <optgroup>
+```
+
+## Combining multiple properties
+
+```haskell
+fullFeaturedInput :: MisoString -> View model action
+fullFeaturedInput currentVal = input_
+  [ id_ "search"
+  , class_ "input input--search"
+  , type_ "search"
+  , value_ currentVal
+  , placeholder_ "Search…"
+  , name_ "q"
+  , autocomplete_ True
+  , autofocus_ True
+  , required_ True
+  , aria_ "label" "Search the site"
+  , data_ "testid" "search-input"
+  ]
+```

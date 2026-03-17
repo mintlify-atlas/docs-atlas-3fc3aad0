@@ -1,0 +1,220 @@
+---
+title: "Virtual DOM"
+description: "How miso builds and patches the DOM efficiently"
+---
+
+Miso maintains an in-memory tree that mirrors the real DOM. On every render cycle, the framework diffs the new virtual tree against the previous one and applies only the minimal set of patches to the actual DOM. Your Haskell code never touches the DOM directly.
+
+## The `View` type
+
+Every miso view function returns a `View model action`. This type has three constructors:
+
+```haskell
+data View model action
+  = VNode Namespace Tag [Attribute action] [View model action]
+  | VText (Maybe Key) MisoString
+  | VComp [Attribute action] (SomeComponent model)
+```
+
+| Constructor | Description |
+|-------------|-------------|
+| `VNode` | An HTML, SVG, or MathML element with attributes and children |
+| `VText` | A plain text node, optionally keyed |
+| `VComp` | A nested `Component`, mounted as an opaque subtree |
+
+`View` is a `Functor`, so you can `fmap` over the action type to adapt child views to a parent's action type.
+
+## Namespaces
+
+Each `VNode` carries a `Namespace` that determines which DOM API is used to create the element:
+
+```haskell
+data Namespace
+  = HTML    -- document.createElement
+  | SVG     -- document.createElementNS (SVG)
+  | MATHML  -- document.createElementNS (MathML)
+```
+
+The namespace is set automatically when you use the element helpers from `Miso.Html.Element`, `Miso.Svg`, or `Miso.Mathml`. You rarely need to specify it manually.
+
+## Smart constructors
+
+Use these functions to build a `View` without reaching for the raw constructors:
+
+### Element nodes
+
+```haskell
+-- | Create a VNode in any namespace
+node :: Namespace -> MisoString -> [Attribute action] -> [View model action] -> View model action
+node = VNode
+
+-- | Synonym for node
+vnode :: Namespace -> MisoString -> [Attribute action] -> [View model action] -> View model action
+vnode = node
+```
+
+In practice you will use the pre-built element helpers instead:
+
+```haskell
+import qualified Miso.Html.Element as H
+
+view :: model -> View model action
+view _ =
+  H.div_ [ H.id_ "container" ]
+    [ H.h1_ [] [ "Hello, miso!" ]
+    , H.p_  [] [ "A paragraph." ]
+    ]
+```
+
+### Text nodes
+
+```haskell
+-- | Plain text — HTML-escaped on the server
+text :: MisoString -> View model action
+
+-- | Synonym for text
+vtext :: MisoString -> View model action
+
+-- | Like text, but skips HTML escaping (unsafe on the server)
+textRaw :: MisoString -> View model action
+
+-- | Concatenate several strings with a space separator
+text_ :: [MisoString] -> View model action
+
+-- | Keyed text node — participates in keyed diffing
+textKey :: ToKey key => key -> MisoString -> View model action
+
+-- | Keyed, concatenated text node
+textKey_ :: ToKey key => key -> [MisoString] -> View model action
+```
+
+<Warning>
+Use `text` (not `textRaw`) for user-supplied content. On the server, `text` calls `htmlEncode` which escapes `<`, `>`, `&`, `"`, and `'`. `textRaw` skips this step and must only be used with trusted, pre-escaped strings.
+</Warning>
+
+### HTML encoding
+
+```haskell
+-- | Escapes HTML special characters
+htmlEncode :: MisoString -> MisoString
+
+-- >>> Data.Text.IO.putStrLn $ htmlEncode "<a href=\"\">"
+-- &lt;a href=&quot;&quot;&gt;
+```
+
+## Attributes
+
+Each `VNode` carries a list of `Attribute action` values that describe its DOM properties and event handlers:
+
+```haskell
+data Attribute action
+  = Property MisoString Value
+    -- ^ A DOM property (key=value)
+  | ClassList [MisoString]
+    -- ^ A list of CSS class names
+  | On (Sink action -> VTree -> LogLevel -> Events -> IO ())
+    -- ^ An event handler that dispatches actions to the update function
+  | Styles (Map MisoString MisoString)
+    -- ^ Inline CSS styles
+```
+
+The `On` constructor gives event handlers access to the `Sink` function, which writes an action to the global event queue. You normally use the helpers from `Miso.Html.Event` rather than constructing `On` directly:
+
+```haskell
+import qualified Miso.Html.Event    as HE
+import qualified Miso.Html.Property as HP
+
+data Action = Clicked | InputChanged MisoString
+
+view :: model -> View model action
+view _ =
+  H.div_ []
+    [ H.button_ [ HE.onClick Clicked ] [ "Click me" ]
+    , H.input_  [ HE.onInput InputChanged, HP.type_ "text" ]
+    ]
+```
+
+## Event delegation
+
+Miso attaches a single set of event listeners to the top-level mount point (typically `<body>`) rather than to individual DOM nodes. When a browser event fires, the runtime walks the virtual DOM tree to find the matching `On` handler and invokes it. This has two consequences:
+
+- Adding or removing DOM nodes never requires re-registering event listeners.
+- Both the `capture` and `bubble` phases of the browser event model are virtualized internally, so you can handle either phase from Haskell.
+
+<Note>
+All events you want to handle must be declared in the `Events` map passed to `startApp` or `miso`. The `defaultEvents` value covers the most common events. Merge additional sets (e.g. `touchEvents`) using `(<>)`.
+</Note>
+
+## Keyed nodes
+
+When a parent node has a large or frequently reordered list of children, give each child a unique `Key`. The diffing algorithm uses keys to match old and new children by identity instead of by position, which avoids unnecessary DOM mutations.
+
+A `Key` is a `newtype` over `MisoString`:
+
+```haskell
+newtype Key = Key MisoString
+```
+
+Convert any type that has a `ToKey` instance (built-in for `Int`, `Double`, `Float`, `Word`, `String`, `Text`, and `MisoString`):
+
+```haskell
+class ToKey key where
+  toKey :: key -> Key
+```
+
+Attach a key to a node using the `key_` property helper, or use the keyed text constructors directly:
+
+```haskell
+import qualified Miso.Html.Property as HP
+
+viewItems :: [Item] -> View model action
+viewItems items =
+  H.ul_ []
+    [ H.li_ [ HP.key_ (ms (itemId item)) ] [ text (itemName item) ]
+    | item <- items
+    ]
+```
+
+```haskell
+-- Keyed text shorthand
+viewLabels :: [(Int, MisoString)] -> View model action
+viewLabels pairs =
+  H.div_ []
+    [ textKey k label
+    | (k, label) <- pairs
+    ]
+```
+
+<Tip>
+The keyed-diffing optimization activates automatically when **all** children of a node are keyed. If even one child lacks a key, the algorithm falls back to positional diffing.
+</Tip>
+
+## When re-renders happen
+
+The `Component` type requires `Eq model`. After each action is processed by `update`, the runtime compares the new model to the previous one using `(==)`. If they are equal, no re-render occurs and the DOM is left unchanged. If they differ, `view` is called with the new model and the resulting virtual tree is diffed against the previous one.
+
+This means you should derive `Eq` for your model type and ensure that equality is structural. Avoid wrapping `IORef` or other mutable references directly in your model — those will compare equal even when their contents differ.
+
+## Component nodes (`VComp`)
+
+The `VComp` constructor embeds a child `Component` in a parent view. It is created with the `(+>)` combinator or `mount_`:
+
+```haskell
+-- | Mount a keyed Component
+(+>) :: Eq child => MisoString -> Component model child action -> View model a
+key +> comp = VComp [ Property "key" (toJSON key) ] (SomeComponent comp)
+
+-- | Mount without a key (only when you won't diff two components against each other)
+mount_ :: Eq child => Component model child action -> View model action
+mount_ comp = VComp [] (SomeComponent comp)
+```
+
+```haskell
+view :: Int -> View Int action
+view x =
+  H.div_ [ HP.id_ "container" ]
+    [ "counter" +> counter
+    ]
+```
+
+The key on a `VComp` behaves the same way as a key on a `VNode`: if the key changes between renders, the old component is unmounted and the new one is mounted from scratch.

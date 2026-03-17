@@ -1,0 +1,353 @@
+---
+title: "Miso.CSS"
+description: "Typed CSS construction with Miso.CSS"
+---
+
+`Miso.CSS` provides a typed DSL for building CSS stylesheets and inline styles. It integrates with the miso component model through `style_` and `styleInline_` attributes, and supports full stylesheet injection via `StyleSheet`.
+
+## Core Types
+
+```haskell
+-- | A single CSS property-value pair
+type Style = (MisoString, MisoString)
+
+-- | A CSS rule set: selector + styles, keyframes, or media query
+data Styles
+  = Styles   (MisoString, [Style])
+  | KeyFrame MisoString [(MisoString, [Style])]
+  | Media    MisoString [(MisoString, [Style])]
+  deriving (Eq, Show)
+
+-- | A collection of CSS rules
+newtype StyleSheet = StyleSheet { getStyleSheet :: [Styles] }
+  deriving (Eq, Show)
+```
+
+## Smart Constructors
+
+```haskell
+-- | Build a Styles rule from a selector and property list
+selector_ :: MisoString -> [Style] -> Styles
+
+-- | Build a StyleSheet from a list of Styles rules
+sheet_ :: [Styles] -> StyleSheet
+
+-- | @keyframes rule
+keyframes_ :: MisoString -> [(MisoString, [Style])] -> Styles
+
+-- | @media rule
+media_ :: MisoString -> [(MisoString, [Style])] -> Styles
+```
+
+## Attribute Helpers
+
+```haskell
+-- | Set the style attribute from a typed [Style] list
+-- (replaces any styles not in the list)
+style_ :: [Style] -> Attribute action
+
+-- | Set the style attribute from a raw CSS string
+styleInline_ :: MisoString -> Attribute action
+
+-- | Render a StyleSheet to a MisoString (for <style> tags)
+renderStyleSheet :: StyleSheet -> MisoString
+```
+
+## CSS Properties
+
+Properties are functions from values to `Style`. Color-accepting properties take a `Color` value; all others take a `MisoString`.
+
+### Layout
+
+```haskell
+display        :: MisoString -> Style
+position       :: MisoString -> Style
+top            :: MisoString -> Style
+bottom         :: MisoString -> Style
+left           :: MisoString -> Style
+right          :: MisoString -> Style
+width          :: MisoString -> Style
+height         :: MisoString -> Style
+minWidth       :: MisoString -> Style
+maxWidth       :: MisoString -> Style
+minHeight      :: MisoString -> Style
+maxHeight      :: MisoString -> Style
+overflow       :: MisoString -> Style
+overflowX      :: MisoString -> Style
+overflowY      :: MisoString -> Style
+zIndex         :: MisoString -> Style
+aspectRatio    :: MisoString -> Style
+```
+
+### Flexbox
+
+```haskell
+flexDirection  :: MisoString -> Style
+flexWrap       :: MisoString -> Style
+flex           :: MisoString -> Style
+flexGrow       :: MisoString -> Style
+flexShrink     :: MisoString -> Style
+flexBasis      :: MisoString -> Style
+flexFlow       :: MisoString -> Style
+justifyContent :: MisoString -> Style
+justifyItems   :: MisoString -> Style
+justifySelf    :: MisoString -> Style
+alignContent   :: MisoString -> Style
+alignItems     :: MisoString -> Style
+alignSelf      :: MisoString -> Style
+order          :: MisoString -> Style
+gap            :: MisoString -> Style
+columnGap      :: MisoString -> Style
+rowGap         :: MisoString -> Style
+```
+
+### Grid
+
+```haskell
+gridTemplateColumns :: MisoString -> Style
+gridTemplateRows    :: MisoString -> Style
+gridAutoColumns     :: MisoString -> Style
+gridAutoRows        :: MisoString -> Style
+gridAutoFlow        :: MisoString -> Style
+gridColumnStart     :: MisoString -> Style
+gridColumnEnd       :: MisoString -> Style
+gridColumnSpan      :: MisoString -> Style
+gridRowStart        :: MisoString -> Style
+gridRowEnd          :: MisoString -> Style
+gridRowSpan         :: MisoString -> Style
+```
+
+### Spacing
+
+```haskell
+margin            :: MisoString -> Style
+marginTop         :: MisoString -> Style
+marginBottom      :: MisoString -> Style
+marginLeft        :: MisoString -> Style
+marginRight       :: MisoString -> Style
+marginInlineStart :: MisoString -> Style
+marginInlineEnd   :: MisoString -> Style
+padding           :: MisoString -> Style
+paddingTop        :: MisoString -> Style
+paddingBottom     :: MisoString -> Style
+paddingLeft       :: MisoString -> Style
+paddingRight      :: MisoString -> Style
+paddingInlineStart :: MisoString -> Style
+paddingInlineEnd  :: MisoString -> Style
+```
+
+### Typography
+
+```haskell
+fontFamily     :: MisoString -> Style
+fontSize       :: MisoString -> Style
+fontWeight     :: MisoString -> Style
+fontStyle      :: MisoString -> Style
+lineHeight     :: MisoString -> Style
+letterSpacing  :: MisoString -> Style
+textAlign      :: MisoString -> Style
+textDecoration :: MisoString -> Style
+textIndent     :: MisoString -> Style
+textOverflow   :: MisoString -> Style
+textShadow     :: MisoString -> Style
+textStroke     :: MisoString -> Style
+textStrokeWidth :: MisoString -> Style
+whiteSpace     :: MisoString -> Style
+wordBreak      :: MisoString -> Style
+verticalAlign  :: MisoString -> Style
+
+-- Color-accepting typography properties
+color            :: Color -> Style
+textStrokeColor  :: Color -> Style
+```
+
+### Colors & Backgrounds
+
+```haskell
+background          :: MisoString -> Style
+backgroundColor     :: Color -> Style
+backgroundImage     :: MisoString -> Style
+backgroundSize      :: MisoString -> Style
+backgroundPosition  :: MisoString -> Style
+backgroundRepeat    :: MisoString -> Style
+backgroundClip      :: MisoString -> Style
+backgroundOrigin    :: MisoString -> Style
+opacity             :: MisoString -> Style
+visibility          :: MisoString -> Style
+fill                :: MisoString -> Style
+stroke              :: MisoString -> Style
+strokeWidth         :: MisoString -> Style
+```
+
+### Borders
+
+```haskell
+border              :: MisoString -> Style
+borderStyle         :: MisoString -> Style
+borderWidth         :: MisoString -> Style
+borderRadius        :: MisoString -> Style
+borderTop           :: MisoString -> Style
+borderBottom        :: MisoString -> Style
+borderLeft          :: MisoString -> Style
+borderRight         :: MisoString -> Style
+boxShadow           :: MisoString -> Style
+boxSizing           :: MisoString -> Style
+
+-- Color-accepting border properties
+borderColor           :: Color -> Style
+borderTopColor        :: Color -> Style
+borderBottomColor     :: Color -> Style
+borderLeftColor       :: Color -> Style
+borderRightColor      :: Color -> Style
+borderInlineStartColor :: Color -> Style
+borderInlineEndColor  :: Color -> Style
+```
+
+### Transforms & Transitions
+
+```haskell
+transform               :: MisoString -> Style
+transformOrigin         :: MisoString -> Style
+transition              :: MisoString -> Style
+transitionProperty      :: MisoString -> Style
+transitionDuration      :: MisoString -> Style
+transitionDelay         :: MisoString -> Style
+transitionTimingFunction :: MisoString -> Style
+perspective             :: MisoString -> Style
+```
+
+### Animations
+
+```haskell
+animation               :: MisoString -> Style
+animationName           :: MisoString -> Style
+animationDuration       :: MisoString -> Style
+animationDelay          :: MisoString -> Style
+animationDirection      :: MisoString -> Style
+animationFillMode       :: MisoString -> Style
+animationIterationCount :: MisoString -> Style
+animationPlayState      :: MisoString -> Style
+animationTimingFunction :: MisoString -> Style
+```
+
+## CSS Units
+
+```haskell
+px  :: Int    -> MisoString  -- "10px"
+pt  :: Int    -> MisoString  -- "10pt"
+pct :: Double -> MisoString  -- "10.0%"
+vw  :: Double -> MisoString  -- "10.0vw"
+vh  :: Double -> MisoString  -- "10.0vh"
+em  :: Double -> MisoString  -- "10.0em"
+rem :: Double -> MisoString  -- "10.0rem"
+rpx :: Double -> MisoString  -- "10.0rpx"
+deg :: Double -> MisoString  -- "10.0deg"
+turn :: Double -> MisoString -- "10.0turn"
+rad :: Double -> MisoString  -- "10.0rad"
+s   :: Double -> MisoString  -- "10.0s"
+ms  :: Double -> MisoString  -- "10.0ms"
+ppx :: Double -> MisoString  -- "10.0ppx"
+
+-- CSS url() function
+url :: MisoString -> MisoString
+
+-- CSS matrix() transform
+matrix :: Double -> Double -> Double -> Double -> Double -> Double -> MisoString
+
+-- CSS variable
+cssVariable :: MisoString -> Style
+```
+
+## Miso.CSS.Color
+
+The `Color` type is re-exported from `Miso.CSS`.
+
+```haskell
+data Color
+  = RGBA Int Int Int Double  -- ^ rgba(r,g,b,a)
+  | RGB  Int Int Int         -- ^ rgb(r,g,b)
+  | HSL  Int Int Int         -- ^ hsl(h,s,l)
+  | HSLA Int Int Int Double  -- ^ hsla(h,s,l,a)
+  | Hex  MisoString          -- ^ #rrggbb
+  | VarColor MisoString      -- ^ var(--name)
+
+-- Smart constructors
+rgba :: Int -> Int -> Int -> Double -> Color
+rgb  :: Int -> Int -> Int -> Color
+hsl  :: Int -> Int -> Int -> Color
+hsla :: Int -> Int -> Int -> Double -> Color
+hex  :: MisoString -> Color
+var  :: MisoString -> Color  -- CSS variable color
+
+-- Render to MisoString
+renderColor :: Color -> MisoString
+```
+
+Over 140 named CSS colors are exported: `red`, `blue`, `green`, `white`, `black`, `transparent`, `aliceblue`, `cornflowerblue`, etc.
+
+```haskell
+-- OverloadedLabels syntax for hex colors
+grey :: Color
+grey = #cccccc
+```
+
+## Full Example
+
+```haskell
+{-# LANGUAGE OverloadedStrings #-}
+module Main where
+
+import Miso
+import Miso.CSS
+import Miso.String (ms)
+
+-- Define a stylesheet
+myStyles :: StyleSheet
+myStyles = sheet_
+  [ selector_ ".container"
+      [ display "flex"
+      , flexDirection "column"
+      , alignItems "center"
+      , padding (px 16)
+      , backgroundColor (rgba 245 245 245 1)
+      ]
+  , selector_ ".title"
+      [ fontSize (px 24)
+      , fontWeight "bold"
+      , color (hex "333333")
+      , marginBottom (px 8)
+      ]
+  , selector_ ".button"
+      [ backgroundColor blue
+      , color white
+      , padding (px 8 <> " " <> px 16)
+      , borderRadius (px 4)
+      , cursor "pointer"
+      ]
+  , keyframes_ "fade-in"
+      [ "from" =: [ opacity "0" ]
+      , "to"   =: [ opacity "1" ]
+      ]
+  , media_ "(max-width: 600px)"
+      [ ".container" =: [ flexDirection "column" ]
+      ]
+  ]
+
+-- Render the stylesheet into a <style> tag
+viewModel :: Model -> View Action
+viewModel model =
+  div_ []
+    [ -- Inject stylesheet
+      node HTML "style" [] [ text (renderStyleSheet myStyles) ]
+      -- Use typed inline styles
+    , div_
+        [ style_
+            [ display "flex"
+            , backgroundColor (rgba 0 128 255 0.1)
+            , borderRadius (px 8)
+            , padding (px 12)
+            ]
+        ]
+        [ text "Styled content" ]
+    ]
+```

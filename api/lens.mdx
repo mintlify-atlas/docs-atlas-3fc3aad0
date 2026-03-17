@@ -1,0 +1,256 @@
+---
+title: "Miso.Lens"
+description: "Lenses and stateful operators for model updates"
+---
+
+`Miso.Lens` provides a minimal, self-contained lens library designed for use inside miso's `Effect` monad. It is at fixity and interface parity with `lens` and `microlens`, so you can swap the import without changing your code.
+
+```haskell
+import Miso.Lens
+```
+
+## The Lens Type
+
+```haskell
+-- | A Lens is a getter and setter pair.
+-- 'Lens record field' focuses on a 'field' inside a 'record'.
+type Lens s a = LensCore a s
+
+data LensCore field record = Lens
+  { _get :: record -> field
+  , _set :: field -> record -> record
+  }
+```
+
+### Smart Constructor
+
+```haskell
+lens
+  :: (record -> field)          -- ^ getter
+  -> (record -> field -> record) -- ^ setter
+  -> Lens record field
+```
+
+```haskell
+data Person = Person { _name :: String, _age :: Int }
+
+name :: Lens Person String
+name = lens _name $ \p n -> p { _name = n }
+
+age :: Lens Person Int
+age = lens _age $ \p a -> p { _age = a }
+```
+
+### Composition
+
+`Lens` forms a `Category`, so lenses compose with `(.)` (or the re-exported `compose`):
+
+```haskell
+data Address = Address { _zipCode :: String }
+
+zipCode :: Lens Address String
+zipCode = lens _zipCode $ \a z -> a { _zipCode = z }
+
+address :: Lens Person Address
+address = lens _address $ \p a -> p { _address = a }
+
+-- Focus through nested records:
+personZip :: Lens Person String
+personZip = zipCode . address
+```
+
+## Pure Operators
+
+These work on plain values without a `State` monad:
+
+```haskell
+-- | Read a field
+(^.) :: record -> Lens record field -> field
+person ^. name  -- "alice"
+
+-- | Set a field
+(.~) :: Lens record field -> field -> record -> record
+person & name .~ "bob"
+
+-- | Set (synonym for .~)
+set :: Lens record field -> field -> record -> record
+
+-- | Set a Maybe field to Just
+(?~) :: Lens record (Maybe field) -> field -> record -> record
+person & nickname ?~ "ace"
+
+-- | Modify a field
+(%~) :: Lens record field -> (field -> field) -> record -> record
+over :: Lens record field -> (field -> field) -> record -> record
+person & age %~ (+1)
+
+-- | Increment
+(+~) :: Num field => Lens record field -> field -> record -> record
+-- | Decrement
+(-~) :: Num field => Lens record field -> field -> record -> record
+-- | Multiply
+(*~) :: Num field => Lens record field -> field -> record -> record
+-- | Divide (Fractional)
+(//~) :: Fractional field => Lens record field -> field -> record -> record
+-- | Monoidally append
+(<>~) :: Monoid field => Lens record field -> field -> record -> record
+```
+
+## Stateful Operators (Effect / State Monad)
+
+These operate inside any `MonadState record m`, including miso's `Effect model action`:
+
+```haskell
+-- | Assign a field
+(.=) :: MonadState record m => Lens record field -> field -> m ()
+assign :: MonadState record m => Lens record field -> field -> m ()
+
+-- | Assign a Maybe field to Just
+(?=) :: MonadState record m => Lens record (Maybe field) -> field -> m ()
+
+-- | Modify a field
+(%=) :: MonadState record m => Lens record field -> (field -> field) -> m ()
+modifying :: MonadState record m => Lens record field -> (field -> field) -> m ()
+
+-- | Modify a Maybe field (no-op if Nothing)
+(%?=) :: MonadState record m => Lens record (Maybe field) -> (field -> field) -> m ()
+
+-- | Increment
+(+=) :: (MonadState record m, Num field) => Lens record field -> field -> m ()
+-- | Decrement
+(-=) :: (MonadState record m, Num field) => Lens record field -> field -> m ()
+-- | Multiply
+(*=) :: (MonadState record m, Num field) => Lens record field -> field -> m ()
+-- | Divide
+(//=) :: (MonadState record m, Fractional field) => Lens record field -> field -> m ()
+
+-- | Read a field in MonadState
+use :: MonadState record m => Lens record field -> m field
+
+-- | Read a field in MonadReader
+view :: MonadReader record m => Lens record field -> m field
+
+-- | Assign from a monadic action
+(<~) :: MonadState record m => Lens record field -> m field -> m ()
+
+-- | Modify and return the new value
+(<%=) :: MonadState record m => Lens record field -> (field -> field) -> m field
+
+-- | Assign and return the new value
+(<.=) :: MonadState record m => Lens record field -> field -> m field
+
+-- | Assign (Just) and return the new value
+(<?=) :: MonadState record m => Lens record (Maybe field) -> field -> m field
+
+-- | Assign and return the previous value
+(<<.=) :: MonadState record m => Lens record field -> field -> m field
+
+-- | Modify and return the previous value
+(<<%=) :: MonadState record m => Lens record field -> (field -> field) -> m field
+```
+
+## Built-in Lenses
+
+```haskell
+-- | Focus on the first element of a tuple
+_1 :: Lens (a, b) a
+
+-- | Focus on the second element of a tuple
+_2 :: Lens (a, b) b
+
+-- | Identity lens (focuses on the whole value)
+_id  :: Lens a a
+this :: Lens a a  -- alias for _id
+```
+
+`this` is especially useful when your `Model` is a scalar type:
+
+```haskell
+type Model = Int
+
+updateModel :: Action -> Effect Model Action
+updateModel Increment = this += 1
+updateModel Decrement = this -= 1
+```
+
+## Prisms
+
+```haskell
+data Prism s a = Prism
+  { _up   :: a -> s
+  , _down :: s -> Maybe a
+  }
+
+prism   :: (a -> s) -> (s -> Maybe a) -> Prism s a
+review  :: Prism s a -> a -> s
+preview :: MonadReader r m => Prism r a -> m (Maybe a)
+preuse  :: MonadState s m => Prism s a -> m (Maybe a)
+(^?)    :: s -> Prism s a -> Maybe a
+
+-- Built-in prisms
+_Just  :: Prism (Maybe a) a
+_Nothing :: Prism (Maybe a) a
+_Left  :: Prism (Either a b) a
+_Right :: Prism (Either a b) b
+```
+
+## At Typeclass — Container Lenses
+
+```haskell
+class At at where
+  type Index at   :: Type
+  type IxValue at :: Type
+  at :: Index at -> Lens at (Maybe (IxValue at))
+```
+
+Instances are provided for `Map k v`, `IntMap v`, `Set k`, `IntSet`, and `[a]`:
+
+```haskell
+-- Insert or delete from a Map
+m & at "key" .~ Just "value"   -- insert
+m & at "key" .~ Nothing        -- delete
+
+-- Or inside Effect:
+at "session" ?= sessionValue
+```
+
+## van Laarhoven Compatibility
+
+```haskell
+type Lens' s a = forall f. Functor f => (a -> f a) -> s -> f s
+
+-- | Convert Miso Lens to van Laarhoven
+toVL :: Lens record field -> Lens' record field
+
+-- | Convert van Laarhoven to Miso Lens
+fromVL :: Lens' record field -> Lens record field
+```
+
+## Usage in update
+
+```haskell
+module Main where
+
+import Miso
+import Miso.Lens
+
+data Model = Model
+  { _count   :: Int
+  , _message :: Maybe String
+  }
+
+count   :: Lens Model Int
+count   = lens _count   $ \m v -> m { _count   = v }
+
+message :: Lens Model (Maybe String)
+message = lens _message $ \m v -> m { _message = v }
+
+data Action = Increment | Decrement | SetMsg String | ClearMsg
+
+updateModel :: Action -> Effect Model Action
+updateModel = \case
+  Increment -> count += 1
+  Decrement -> count -= 1
+  SetMsg s  -> message ?= s
+  ClearMsg  -> message .= Nothing
+```

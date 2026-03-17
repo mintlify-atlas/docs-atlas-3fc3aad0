@@ -1,0 +1,509 @@
+---
+title: "Miso.Types"
+description: "Core types for miso applications"
+---
+
+The `Miso.Types` module defines every fundamental type used to build a miso application — from the top-level `Component` record to the `View` virtual DOM tree, `Attribute`s, strings, and smart constructors.
+
+```haskell
+import Miso.Types
+```
+
+## Component
+
+`Component` is the central record type for a miso application. It holds the initial model, update logic, view function, subscriptions, and configuration.
+
+```haskell
+data Component parent model action
+  = Component
+  { model            :: model
+  , hydrateModel     :: Maybe (IO model)
+  , update           :: action -> Effect parent model action
+  , view             :: model -> View model action
+  , subs             :: [Sub action]
+  , styles           :: [CSS]
+  , scripts          :: [JS]
+  , mountPoint       :: Maybe MountPoint
+  , logLevel         :: LogLevel
+  , mailbox          :: Value -> Maybe action
+  , bindings         :: [Binding parent model]
+  , eventPropagation :: Bool
+  , mount            :: Maybe action
+  , unmount          :: Maybe action
+  }
+```
+
+<AccordionGroup>
+  <Accordion title="model">
+    The initial state of the component. Any Haskell type with an `Eq` instance is valid.
+  </Accordion>
+  <Accordion title="hydrateModel">
+    An optional `IO model` action to load component state during hydration (e.g. reading data from the pre-rendered page). The result is only used on initial hydration, not on remounts.
+  </Accordion>
+  <Accordion title="update">
+    The update function. Takes an `action`, optionally mutates the model state, and schedules `IO` effects.
+
+    ```haskell
+    update :: action -> Effect parent model action
+    ```
+  </Accordion>
+  <Accordion title="view">
+    The view function. Produces a virtual DOM tree from the current model.
+
+    ```haskell
+    view :: model -> View model action
+    ```
+  </Accordion>
+  <Accordion title="subs">
+    A list of `Sub action` — long-running background processes (e.g. timers, WebSocket connections) that exist for the lifetime of the component.
+  </Accordion>
+  <Accordion title="styles">
+    A list of `CSS` values appended to `<head>` before the initial draw. Accepts external URLs (`Href`) or inline CSS (`Style`, `Sheet`).
+  </Accordion>
+  <Accordion title="scripts">
+    A list of `JS` values appended to `<head>` before the initial draw. Accepts external URLs (`Src`) or inline JavaScript (`Script`, `Module`, `ImportMap`).
+  </Accordion>
+  <Accordion title="mountPoint">
+    The DOM element ID to use as the root for diffing and rendering. Defaults to `<body>` when `Nothing`.
+
+    ```haskell
+    type MountPoint = MisoString
+    ```
+  </Accordion>
+  <Accordion title="logLevel">
+    Debugging verbosity. See `LogLevel` below. Defaults to `Off`.
+  </Accordion>
+  <Accordion title="mailbox">
+    A function that receives JSON `Value`s from other components and optionally converts them to `action`s.
+
+    ```haskell
+    mailbox :: Value -> Maybe action
+    ```
+  </Accordion>
+  <Accordion title="bindings">
+    Data bindings between parent and child component models. See `Miso.Binding`.
+  </Accordion>
+  <Accordion title="eventPropagation">
+    Controls whether events bubble up past the component boundary. Defaults to `False`.
+  </Accordion>
+  <Accordion title="mount">
+    An optional action dispatched when the component first mounts.
+
+    ```haskell
+    mount :: Maybe action
+    ```
+  </Accordion>
+  <Accordion title="unmount">
+    An optional action dispatched just before the component unmounts.
+
+    ```haskell
+    unmount :: Maybe action
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### `App` type alias
+
+A top-level component has no parent. The `App` alias enforces this by specializing the `parent` parameter to `ROOT`.
+
+```haskell
+type App model action = Component ROOT model action
+```
+
+### `ROOT`
+
+A phantom type used to mark a component as top-level. It has no inhabitants.
+
+```haskell
+data ROOT
+```
+
+## Smart constructors
+
+### `component`
+
+The recommended way to create a `Component`. Sets all optional fields to sensible defaults.
+
+```haskell
+component
+  :: model
+  -> (action -> Effect parent model action)
+  -> (model -> View model action)
+  -> Component parent model action
+```
+
+```haskell
+myApp :: App Int Action
+myApp = component 0 update view
+```
+
+### `vcomp`
+
+Synonym for `component`.
+
+```haskell
+vcomp
+  :: model
+  -> (action -> Effect parent model action)
+  -> (model -> View model action)
+  -> Component parent model action
+```
+
+## Component mounting
+
+### `(+>)`
+
+Mounts a child component inside a parent view. The string key is required to distinguish components during diffing.
+
+```haskell
+(+>)
+  :: forall child model action a . Eq child
+  => MisoString          -- ^ Unique key for this component instance
+  -> Component model child action
+  -> View model a
+infixr 0 +>
+```
+
+```haskell
+view :: Int -> View Int Action
+view _ = div_ [] [ "my-counter" +> counter ]
+```
+
+<Warning>
+  Always provide a unique key when you may diff one component against another. Without a key, the old component will not be unmounted when replaced.
+</Warning>
+
+### `mount_`
+
+Mounts a child component without a key. Only use this when you are certain two components of the same type will never be diffed against each other.
+
+```haskell
+mount_
+  :: Eq child
+  => Component model child a
+  -> View model action
+```
+
+```haskell
+view :: model -> View model Action
+view _ = mount_ myChildComponent
+```
+
+## View
+
+The `View` type is the virtual DOM tree. It is mutually recursive with `Component`, allowing components to be embedded inside other components.
+
+```haskell
+data View model action
+  = VNode Namespace Tag [Attribute action] [View model action]
+  | VText (Maybe Key) MisoString
+  | VComp [Attribute action] (SomeComponent model)
+  deriving Functor
+```
+
+`View` also has an `IsString` instance — string literals produce `VText` nodes.
+
+### `SomeComponent`
+
+An existential wrapper that erases the concrete `model` and `action` types of a nested component, making it embeddable in a parent view.
+
+```haskell
+data SomeComponent parent
+  = forall model action . Eq model
+  => SomeComponent (Component parent model action)
+```
+
+## View combinators
+
+### `node` / `vnode`
+
+Create a virtual DOM element node. `vnode` is a synonym for `node`.
+
+```haskell
+node
+  :: Namespace
+  -> MisoString          -- ^ Tag name
+  -> [Attribute action]
+  -> [View model action]
+  -> View model action
+
+vnode
+  :: Namespace
+  -> MisoString
+  -> [Attribute action]
+  -> [View model action]
+  -> View model action
+```
+
+### `text` / `vtext`
+
+Create a text node. HTML characters are escaped on the server. `vtext` is a synonym for `text`.
+
+```haskell
+text :: MisoString -> View model action
+vtext :: MisoString -> View model action
+```
+
+### `textRaw`
+
+Like `text`, but skips HTML escaping. Use with caution on the server.
+
+```haskell
+textRaw :: MisoString -> View model action
+```
+
+### `text_`
+
+Create a text node from a list of strings. A single space is inserted between each element.
+
+```haskell
+text_ :: [MisoString] -> View model action
+```
+
+```haskell
+-- Renders as: foo bar
+text_ ["foo", "bar"]
+```
+
+### `textKey`
+
+Like `text`, but allows the node to carry a key for efficient diffing.
+
+```haskell
+textKey :: ToKey key => key -> MisoString -> View model action
+```
+
+### `textKey_`
+
+Like `text_`, but with a key.
+
+```haskell
+textKey_ :: ToKey key => key -> [MisoString] -> View model action
+```
+
+### `htmlEncode`
+
+Escapes HTML special characters in a `MisoString`. Converts `<`, `>`, `&`, `"`, and `'`.
+
+```haskell
+htmlEncode :: MisoString -> MisoString
+```
+
+```haskell
+-- Returns "&lt;a href=&quot;&quot;&gt;"
+htmlEncode "<a href=\"\">"
+```
+
+### `optionalAttrs`
+
+Conditionally adds extra attributes to an element.
+
+```haskell
+optionalAttrs
+  :: ([Attribute action] -> [View model action] -> View model action)
+  -> [Attribute action]  -- ^ Attributes added unconditionally
+  -> Bool                -- ^ Condition
+  -> [Attribute action]  -- ^ Attributes added when condition is True
+  -> [View model action]
+  -> View model action
+```
+
+```haskell
+view :: Bool -> View model Action
+view danger =
+  optionalAttrs textarea_ [ id_ "txt" ] danger [ class_ "danger" ] []
+```
+
+### `optionalChildren`
+
+Conditionally adds extra children to an element.
+
+```haskell
+optionalChildren
+  :: ([Attribute action] -> [View model action] -> View model action)
+  -> [Attribute action]    -- ^ Attributes added unconditionally
+  -> [View model action]   -- ^ Children added unconditionally
+  -> Bool                  -- ^ Condition
+  -> [View model action]   -- ^ Children added when condition is True
+  -> View model action
+```
+
+## Attribute
+
+```haskell
+data Attribute action
+  = Property MisoString Value
+  | ClassList [MisoString]
+  | On (Sink action -> VTree -> LogLevel -> Events -> IO ())
+  | Styles (M.Map MisoString MisoString)
+  deriving Functor
+```
+
+| Constructor | Description |
+|-------------|-------------|
+| `Property` | A named DOM property with a JSON `Value` |
+| `ClassList` | A list of CSS class names |
+| `On`        | An event handler with access to the `Sink` |
+| `Styles`    | A map of inline CSS property/value pairs |
+
+## Namespace
+
+The XML namespace of a DOM element.
+
+```haskell
+data Namespace
+  = HTML
+  | SVG
+  | MATHML
+  deriving (Show, Eq)
+```
+
+## Key / ToKey
+
+A `Key` is a unique string identifier attached to virtual DOM nodes or text nodes to accelerate child-list diffing.
+
+```haskell
+newtype Key = Key MisoString
+```
+
+Convert any type to a `Key` using the `ToKey` class:
+
+```haskell
+class ToKey key where
+  toKey :: key -> Key
+```
+
+Instances are provided for `Key`, `MisoString`, `Text`, `String`, `Int`, `Double`, `Float`, and `Word`.
+
+## CSS
+
+Express CSS to append to `<head>` before the first draw.
+
+```haskell
+data CSS
+  = Href MisoString CacheBust
+  -- ^ URL to a hosted stylesheet
+  | Style MisoString
+  -- ^ Raw CSS in a <style> tag
+  | Sheet StyleSheet
+  -- ^ CSS built with Miso.CSS
+  deriving (Show, Eq)
+
+type CacheBust = Bool
+```
+
+```haskell
+styles =
+  [ Href "https://cdn.example.com/bootstrap.min.css" False
+  , Style "body { margin: 0; }"
+  ]
+```
+
+## JS
+
+Express JavaScript to append to `<head>` before the first draw.
+
+```haskell
+data JS
+  = Src MisoString CacheBust
+  -- ^ URL to a hosted script
+  | Script MisoString
+  -- ^ Raw JS in a <script> tag
+  | Module MisoString
+  -- ^ Raw JS module in a <script type="module"> tag
+  | ImportMap [(MisoString, MisoString)]
+  -- ^ Import map in a <script type="importmap"> tag
+  deriving (Show, Eq)
+```
+
+```haskell
+scripts =
+  [ Src "https://cdn.example.com/jquery.min.js" False
+  , Script "console.log('loaded');"
+  ]
+```
+
+## LogLevel
+
+Controls the verbosity of miso's runtime debug output.
+
+```haskell
+data LogLevel
+  = Off
+  -- ^ No debug logging (default)
+  | DebugHydrate
+  -- ^ Warns when virtual DOM and real DOM differ during hydration
+  | DebugEvents
+  -- ^ Warns on unroutable events and missing event delegator registrations
+  | DebugAll
+  -- ^ Enables all debug warnings
+  deriving (Show, Eq)
+```
+
+```haskell
+-- Enable all debugging
+myApp = counter { logLevel = DebugAll }
+```
+
+## URI
+
+Miso's internal URI representation, following [RFC 3986](https://www.rfc-editor.org/rfc/rfc3986).
+
+```haskell
+data URI
+  = URI
+  { uriPath        :: MisoString
+  , uriFragment    :: MisoString
+  , uriQueryString :: M.Map MisoString (Maybe MisoString)
+  } deriving (Show, Eq, Generic)
+```
+
+### `emptyURI`
+
+```haskell
+emptyURI :: URI
+emptyURI = URI mempty mempty mempty
+```
+
+### `prettyURI`
+
+Renders a `URI` as a `MisoString` in the form `/path?key=value#fragment`.
+
+```haskell
+prettyURI :: URI -> MisoString
+```
+
+### `prettyQueryString`
+
+Renders only the query string portion of a `URI`.
+
+```haskell
+prettyQueryString :: URI -> MisoString
+```
+
+## MisoString
+
+`MisoString` is miso's preferred string type. It maps to `JSString` on JS/WASM backends and `Data.Text` on vanilla GHC.
+
+```haskell
+type MisoString = ...
+```
+
+### Conversion functions
+
+```haskell
+-- Short alias for toMisoString
+ms :: ToMisoString a => a -> MisoString
+
+-- Convert any ToMisoString instance to MisoString
+toMisoString :: ToMisoString a => a -> MisoString
+
+-- Convert MisoString back to a concrete type
+fromMisoString :: FromMisoString a => MisoString -> a
+```
+
+```haskell
+-- Convert Int to MisoString
+counter :: Int -> View model Action
+counter n = text (ms n)
+```

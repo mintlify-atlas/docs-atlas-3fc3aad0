@@ -1,0 +1,248 @@
+---
+title: "Miso.Subscription"
+description: "Built-in subscriptions for browser events"
+---
+
+`Miso.Subscription` re-exports all built-in subscription modules. Subscriptions are long-lived event listeners that push actions into your application's update loop.
+
+A `Sub action` has type `Sink action -> IO ()`. Each subscription installs an event listener and tears it down when the component unmounts.
+
+## History — `Miso.Subscription.History`
+
+Integrates with the [History API](https://developer.mozilla.org/en-US/docs/Web/API/History) to track navigation.
+
+### Subscriptions
+
+```haskell
+-- | Fire an action whenever the URL changes (popstate events)
+uriSub :: (URI -> action) -> Sub action
+
+-- | Like uriSub but decodes via your Router instance
+routerSub :: Router route => (Either RoutingError route -> action) -> Sub action
+```
+
+### Navigation Functions
+
+```haskell
+-- | Push a new URI onto the History stack (also fires popstate)
+pushURI :: URI -> IO ()
+
+-- | Replace the current URI (also fires popstate)
+replaceURI :: URI -> IO ()
+
+-- | Read the current URI from window.location
+getURI :: IO URI
+
+-- | Navigate backwards
+back :: IO ()
+
+-- | Navigate forwards
+forward :: IO ()
+
+-- | Jump N steps in history
+go :: Int -> IO ()
+```
+
+### Example
+
+```haskell
+import Miso
+import Miso.Subscription.History
+import Miso.Router
+
+data Route = Home | About
+  deriving (Show, Eq, Generic)
+  deriving anyclass Router
+
+data Action = RouteChanged (Either RoutingError Route)
+
+componentSubs :: [Sub Action]
+componentSubs = [ routerSub RouteChanged ]
+
+-- Navigate programmatically
+goHome :: Effect Model Action
+goHome = io_ $ pushURI (toURI Home)
+```
+
+---
+
+## Keyboard — `Miso.Subscription.Keyboard`
+
+Tracks key state for game-style input.
+
+### Types
+
+```haskell
+-- | Directional state from arrow or WASD keys
+data Arrows = Arrows
+  { arrowX :: !Int  -- -1 = left, 0 = neutral, 1 = right
+  , arrowY :: !Int  -- -1 = down, 0 = neutral, 1 = up
+  } deriving (Show, Eq)
+```
+
+### Subscriptions
+
+```haskell
+-- | Arrow keys → Arrows
+arrowsSub :: (Arrows -> action) -> Sub action
+
+-- | WASD keys → Arrows
+wasdSub :: (Arrows -> action) -> Sub action
+
+-- | Custom direction mapping: (up, down, left, right) key codes → Arrows
+directionSub
+  :: ([Int], [Int], [Int], [Int])
+  -> (Arrows -> action)
+  -> Sub action
+
+-- | Raw set of currently-pressed key codes
+keyboardSub :: (IntSet -> action) -> Sub action
+```
+
+### Example
+
+```haskell
+import Miso
+import Miso.Subscription.Keyboard
+
+data Model = Model { playerX :: Int, playerY :: Int }
+data Action = Move Arrows
+
+componentSubs :: [Sub Action]
+componentSubs = [ arrowsSub Move ]
+
+updateModel :: Action -> Effect Model Action
+updateModel (Move Arrows{..}) = do
+  playerX += arrowX
+  playerY += arrowY
+```
+
+---
+
+## Mouse — `Miso.Subscription.Mouse`
+
+Tracks pointer position using the `pointermove` window event.
+
+### Subscription
+
+```haskell
+-- | Fires with a PointerEvent on every pointer move
+mouseSub :: (PointerEvent -> action) -> Sub action
+```
+
+`PointerEvent` is defined in `Miso.Event` and contains fields like `clientX`, `clientY`, `pageX`, `pageY`.
+
+### Example
+
+```haskell
+import Miso
+import Miso.Subscription.Mouse
+import Miso.Event (PointerEvent(..))
+
+data Model = Model { mousePos :: (Double, Double) }
+data Action = MouseMoved PointerEvent
+
+componentSubs :: [Sub Action]
+componentSubs = [ mouseSub MouseMoved ]
+
+updateModel :: Action -> Effect Model Action
+updateModel (MouseMoved ev) = do
+  mousePos .= (clientX ev, clientY ev)
+```
+
+---
+
+## Window — `Miso.Subscription.Window`
+
+Listen to any [window-level event](https://developer.mozilla.org/en-US/docs/Web/API/Window#events).
+
+### Types
+
+```haskell
+-- | An (x, y) coordinate pair
+type Coord = (Double, Double)
+```
+
+### Subscriptions
+
+```haskell
+-- | Listen to any named window event with a Decoder
+windowSub
+  :: MisoString        -- ^ Event name (e.g. "resize", "scroll")
+  -> Decoder r         -- ^ JSON decoder for the event
+  -> (r -> action)
+  -> Sub action
+
+-- | Like windowSub but with event Options (stopPropagation, preventDefault)
+windowSubWithOptions
+  :: Options
+  -> MisoString
+  -> Decoder result
+  -> (result -> action)
+  -> Sub action
+
+-- | Subscribe to pointermove, receiving Coord (client x/y)
+windowCoordsSub :: (Coord -> action) -> Sub action
+
+-- | Subscribe to pointermove, receiving a full PointerEvent
+windowPointerMoveSub :: (PointerEvent -> action) -> Sub action
+```
+
+### Example
+
+```haskell
+import Miso
+import Miso.Subscription.Window
+import Miso.Event
+
+data Action = WindowResized Coord
+
+-- Listen to "resize" events, decoding clientX/Y from the event
+resizeSub :: Sub Action
+resizeSub = windowSub "resize" coordDecoder WindowResized
+```
+
+---
+
+## OnLine — `Miso.Subscription.OnLine`
+
+Monitors the browser's network connectivity via the [Navigator.onLine](https://developer.mozilla.org/en-US/docs/Web/API/Navigator/onLine) API.
+
+### Subscription
+
+```haskell
+-- | Fires True when the browser goes online, False when offline
+onLineSub :: (Bool -> action) -> Sub action
+```
+
+### Example
+
+```haskell
+import Miso
+import Miso.Subscription.OnLine
+
+data Model = Model { isOnline :: Bool }
+data Action = NetworkStatusChanged Bool
+
+componentSubs :: [Sub Action]
+componentSubs = [ onLineSub NetworkStatusChanged ]
+
+updateModel :: Action -> Effect Model Action
+updateModel (NetworkStatusChanged online) = do
+  isOnline .= online
+```
+
+---
+
+## Combining Subscriptions
+
+Pass multiple subscriptions to your component's `subs` field:
+
+```haskell
+myComponent :: Component Model Action
+myComponent = component initialModel update view
+  [ routerSub RouteChanged
+  , arrowsSub PlayerMoved
+  , onLineSub NetworkChanged
+  ]
+```

@@ -1,0 +1,246 @@
+---
+title: "WebSockets"
+description: "Real-time communication with WebSockets in miso"
+---
+
+The `Miso.WebSocket` module provides a typed interface to the browser [WebSocket API](https://developer.mozilla.org/en-US/docs/Web/API/WebSocket). Connections are established inside the `Effect` monad and messages are dispatched back into the update loop via callbacks.
+
+See the [WebSocket example](https://github.com/haskell-miso/miso-websocket) ([live demo](https://websocket.haskell-miso.org)) for a complete application.
+
+## Types
+
+```haskell
+-- | A handle to an open WebSocket connection.
+newtype WebSocket = WebSocket Int
+
+-- | Null / uninitialised socket handle.
+emptyWebSocket :: WebSocket
+emptyWebSocket = (-1)
+
+-- | URL type alias.
+type URL = MisoString
+
+-- | Connection state.
+data SocketState
+  = CONNECTING  -- ^ 0
+  | OPEN        -- ^ 1
+  | CLOSING     -- ^ 2
+  | CLOSED      -- ^ 3
+  deriving (Show, Eq, Ord, Enum)
+
+-- | Delivered to the onClosed callback.
+data Closed = Closed
+  { closedCode :: CloseCode
+  , wasClean   :: Bool
+  , reason     :: MisoString
+  } deriving (Eq, Show)
+
+-- | Close codes from the WebSocket spec.
+data CloseCode
+  = CLOSE_NORMAL
+  | CLOSE_GOING_AWAY
+  | CLOSE_PROTOCOL_ERROR
+  | CLOSE_UNSUPPORTED
+  | CLOSE_NO_STATUS
+  | CLOSE_ABNORMAL
+  | Unsupported_Data
+  | Policy_Violation
+  | CLOSE_TOO_LARGE
+  | Missing_Extension
+  | Internal_Error
+  | Service_Restart
+  | Try_Again_Later
+  | TLS_Handshake
+  | OtherCode Int
+  deriving (Show, Eq)
+
+-- | Multi-protocol payload type used by 'connect'.
+data Payload value
+  = JSON value
+  | BLOB Blob
+  | TEXT MisoString
+  | BUFFER ArrayBuffer
+```
+
+## Connecting
+
+There are five `connect*` functions, each specialised to a particular wire protocol.
+
+<Tabs>
+  <Tab title="JSON">
+    ```haskell
+    connectJSON
+      :: FromJSON json
+      => URL
+      -> (WebSocket -> action)   -- ^ onOpen
+      -> (Closed -> action)      -- ^ onClosed
+      -> (json -> action)        -- ^ onMessage
+      -> (MisoString -> action)  -- ^ onError
+      -> Effect parent model action
+    ```
+
+    Assumes every incoming message is a JSON-encoded value. The decoded value is passed directly to the `onMessage` callback.
+  </Tab>
+  <Tab title="Text">
+    ```haskell
+    connectText
+      :: URL
+      -> (WebSocket -> action)        -- ^ onOpen
+      -> (Closed -> action)           -- ^ onClosed
+      -> (MisoString -> action)       -- ^ onMessage
+      -> (MisoString -> action)       -- ^ onError
+      -> Effect parent model action
+    ```
+  </Tab>
+  <Tab title="BLOB">
+    ```haskell
+    connectBLOB
+      :: URL
+      -> (WebSocket -> action)   -- ^ onOpen
+      -> (Closed -> action)      -- ^ onClosed
+      -> (Blob -> action)        -- ^ onMessage
+      -> (MisoString -> action)  -- ^ onError
+      -> Effect parent model action
+    ```
+  </Tab>
+  <Tab title="ArrayBuffer">
+    ```haskell
+    connectArrayBuffer
+      :: URL
+      -> (WebSocket -> action)       -- ^ onOpen
+      -> (Closed -> action)          -- ^ onClosed
+      -> (ArrayBuffer -> action)     -- ^ onMessage
+      -> (MisoString -> action)      -- ^ onError
+      -> Effect parent model action
+    ```
+  </Tab>
+  <Tab title="Multi-protocol">
+    ```haskell
+    connect
+      :: FromJSON json
+      => URL
+      -> (WebSocket -> action)       -- ^ onOpen
+      -> (Closed -> action)          -- ^ onClosed
+      -> (Payload json -> action)    -- ^ onMessage
+      -> (MisoString -> action)      -- ^ onError
+      -> Effect parent model action
+    ```
+
+    Use `connect` when a single server sends multiple kinds of payloads (JSON, text, binary). Pattern-match on the `Payload` constructor in your update function.
+  </Tab>
+</Tabs>
+
+The `onOpen` callback receives a `WebSocket` handle. Store this handle in your model — you need it to send messages later.
+
+## Sending messages
+
+```haskell
+-- Send a JSON-encoded value.
+sendJSON :: ToJSON json => WebSocket -> json -> Effect parent model action
+
+-- Send a raw text string.
+sendText :: WebSocket -> MisoString -> Effect parent model action
+
+-- Send a Blob.
+sendBLOB :: WebSocket -> Blob -> Effect parent model action
+
+-- Send an ArrayBuffer.
+sendArrayBuffer :: WebSocket -> ArrayBuffer -> Effect parent model action
+```
+
+All `send*` functions require the `WebSocket` handle received in `onOpen`.
+
+### Example
+
+```haskell
+data Person = Person { name :: MisoString, age :: Int }
+  deriving (Show, Eq)
+
+instance ToJSON Person where
+  toJSON (Person n a) = object [ "name" .= n, "age" .= a ]
+
+-- Called from inside an update handler once the socket is open:
+sendBothPeople :: WebSocket -> Effect parent model action
+sendBothPeople connection = do
+  sendJSON connection (Person "alice" 42)
+  sendJSON connection (Person "bob"   33)
+```
+
+## Closing
+
+```haskell
+close :: WebSocket -> Effect parent model action
+```
+
+<Warning>
+  Always close a `WebSocket` when the component is done with it. Failing to call `close` can cause resource leaks. `close` is a no-op if called multiple times.
+</Warning>
+
+## Querying socket state
+
+```haskell
+socketState :: WebSocket -> (SocketState -> action) -> Effect parent model action
+```
+
+Asynchronously reads the current `SocketState` and dispatches the result as an action.
+
+## Full example
+
+```haskell
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE LambdaCase        #-}
+module Main where
+
+import Miso
+import Miso.WebSocket
+import qualified Miso.Html as H
+
+data ChatMsg = ChatMsg { text :: MisoString }
+  deriving (Show, Eq)
+
+instance FromJSON ChatMsg where
+  parseJSON = withObject "ChatMsg" $ \o -> ChatMsg <$> o .: "text"
+
+data Model = Model
+  { socket   :: WebSocket
+  , messages :: [MisoString]
+  } deriving (Show, Eq)
+
+initialModel :: Model
+initialModel = Model emptyWebSocket []
+
+data Action
+  = SocketOpen  WebSocket
+  | SocketClose Closed
+  | SocketMsg   ChatMsg
+  | SocketError MisoString
+  | SendPing
+
+app :: App Model Action
+app = component initialModel update view
+
+update :: Action -> Effect Model Model Action
+update = \case
+  SocketOpen ws ->
+    socket .= ws
+  SocketClose closed ->
+    io_ $ consoleLog ("closed: " <> reason closed)
+  SocketMsg msg ->
+    messages %= (text msg :)
+  SocketError err ->
+    io_ $ consoleError err
+  SendPing -> do
+    ws <- use socket
+    sendText ws "ping"
+
+main :: IO ()
+main = startApp defaultEvents $
+  app { subs = [ connectJSON "wss://example.com/chat"
+                   SocketOpen SocketClose SocketMsg SocketError
+               ]
+      }
+```
+
+<Note>
+  `connect*` functions return an `Effect`, so they can be called directly from `startApp`'s `subs` field or from within any `update` handler.
+</Note>

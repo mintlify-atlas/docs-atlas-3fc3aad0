@@ -1,0 +1,243 @@
+---
+title: "Components"
+description: "Composing miso applications with typed component hierarchies"
+---
+
+A `Component` is the fundamental building block of a miso application. It encapsulates state, update logic, and view rendering, and can be nested inside other components to form a typed tree.
+
+## The Component type
+
+```haskell
+data Component parent model action
+  = Component
+  { model            :: model
+  -- ^ Initial model
+  , hydrateModel     :: Maybe (IO model)
+  -- ^ Loads model state for hydration only
+  , update           :: action -> Effect parent model action
+  -- ^ Updates model and schedules effects
+  , view             :: model -> View model action
+  -- ^ Renders the virtual DOM
+  , subs             :: [Sub action]
+  -- ^ Long-running subscriptions (stopped on unmount)
+  , styles           :: [CSS]
+  -- ^ CSS injected into <head> before first draw
+  , scripts          :: [JS]
+  -- ^ JS injected into <head> before first draw
+  , mountPoint       :: Maybe MountPoint
+  -- ^ Root element ID for DOM diffing (Nothing = <body>)
+  , logLevel         :: LogLevel
+  -- ^ Debugging: Off | DebugHydrate | DebugEvents | DebugAll
+  , mailbox          :: Value -> Maybe action
+  -- ^ Receives JSON messages from other components
+  , bindings         :: [Binding parent model]
+  -- ^ Synchronous data bindings with parent model
+  , eventPropagation :: Bool
+  -- ^ Whether events bubble past the component boundary (default: False)
+  , mount            :: Maybe action
+  -- ^ Action dispatched when component mounts
+  , unmount          :: Maybe action
+  -- ^ Action dispatched when component unmounts
+  }
+```
+
+## Smart constructors
+
+Use `component` (or its synonym `vcomp`) to create a component with all optional fields set to safe defaults:
+
+```haskell
+component
+  :: model
+  -> (action -> Effect parent model action)
+  -> (model -> View model action)
+  -> Component parent model action
+```
+
+Defaults applied by `component`:
+- `subs = []`, `styles = []`, `scripts = []`
+- `mountPoint = Nothing` (uses `<body>`)
+- `logLevel = Off`
+- `mailbox = const Nothing`
+- `bindings = []`
+- `eventPropagation = False`
+- `mount = Nothing`, `unmount = Nothing`
+
+Record update syntax lets you override any field:
+
+```haskell
+myApp :: App Int Action
+myApp = component 0 updateModel viewModel
+  { logLevel = DebugAll
+  , mount    = Just Init
+  }
+```
+
+## App vs Component
+
+`App` is a type alias for a top-level `Component` with no parent:
+
+```haskell
+type App model action = Component ROOT model action
+
+-- ROOT is an uninhabited phantom type
+data ROOT
+```
+
+`startApp` and `miso` always infer `parent ~ ROOT`. Child components use the parent's `model` type as their `parent` type parameter, giving them type-safe read-only access to the parent state.
+
+## Component composition
+
+Components are embedded in the `View` tree using the `(+>)` combinator or `mount_`.
+
+### (+>) — keyed mounting
+
+```haskell
+(+>)
+  :: forall child model action a . Eq child
+  => MisoString          -- ^ Unique key for diffing
+  -> Component model child action
+  -> View model a
+```
+
+The key string uniquely identifies the component at runtime. When two components are diffed and their keys differ, the old component is unmounted and a new one is mounted:
+
+```haskell
+view :: Int -> View Int action
+view x = div_ [ id_ "container" ] [ "counter" +> counter ]
+```
+
+### mount_ — keyless mounting
+
+```haskell
+mount_ :: Eq child => Component model child a -> View model action
+```
+
+<Warning>
+  Only use `mount_` when you are certain a single instance of this component will always occupy the same position in the view. When diffing could encounter multiple components of the same type, always use `(+>)` with a unique key.
+</Warning>
+
+### Multiple components in a list
+
+```haskell
+ul_
+  []
+  [ "key-1" +> counter
+  , "key-2" +> timer
+  , "key-3" +> logger
+  ]
+```
+
+## Lifecycle hooks
+
+### Component-level hooks
+
+Set `mount` and `unmount` to dispatch an action when the component is inserted into or removed from the DOM:
+
+```haskell
+data Action = Init | Cleanup
+
+main :: IO ()
+main = startApp defaultEvents counter { mount = Just Init }
+
+update :: Action -> Effect parent model Action
+update = \case
+  Init    -> io_ (consoleLog "hello world!")
+  Cleanup -> io_ (consoleLog "goodbye!")
+```
+
+### VNode-level hooks
+
+Individual DOM nodes expose four lifecycle events:
+
+| Hook | Trigger |
+|---|---|
+| `onBeforeCreated` | Before the DOM node is created |
+| `onCreated` / `onCreatedWith` | After the DOM node is inserted |
+| `onBeforeDestroyed` / `onBeforeDestroyedWith` | Before the DOM node is removed |
+| `onDestroyed` | After the DOM node is removed |
+
+The `*With` variants provide the `DOMRef` of the target node as a callback argument. This is useful for integrating third-party JavaScript libraries:
+
+```haskell
+{-# LANGUAGE QuasiQuotes     #-}
+{-# LANGUAGE MultilineStrings #-}
+
+import Miso
+import Miso.FFI.QQ (js)
+
+data Action = Highlight DOMRef
+
+update :: Action -> Effect parent model Action
+update = \case
+  Highlight domRef -> io_ $ do
+    [js| hljs.highlight(${domRef}) |]
+
+view :: model -> View model Action
+view x =
+  code_
+  [ onCreatedWith Highlight
+  ]
+  [ """
+    function addOne (x) { return x + 1; }
+    """
+  ]
+```
+
+## Keys
+
+A `Key` is a unique identifier used to optimize diffing. Providing keys serves two purposes:
+
+1. **List diffing optimization** — when all children in a list have unique keys, miso can reorder nodes instead of destroying and recreating them.
+2. **Component identity** — when two `VComp` nodes are compared and their keys differ, the old component is unmounted and the new one is freshly mounted.
+
+```haskell
+ul_
+  []
+  [ li_      [ key_ "key-1" ] [ "a" ]
+  , li_      [ key_ "key-2" ] [ "b" ]
+  , "key-3" +> counter
+  , textKey  "key-4" "text here"
+  ]
+```
+
+## Component mailbox
+
+Every component has a `mailbox` field that receives JSON messages from other components. Pair it with `checkMail` in a subscription, and use `mail`, `mailParent`, or `broadcast` to send messages:
+
+```haskell
+-- Sending a message to a specific component by ID
+update = \case
+  NotifyChild -> io_ $ do
+    compId <- view componentInfoId
+    mail compId (toJSON ("hello" :: MisoString))
+
+-- Receiving messages
+myComponent = component model updateFn viewFn
+  { mailbox = \v -> case fromJSON v of
+      Success msg -> Just (Received msg)
+      _           -> Nothing
+  }
+```
+
+## Data bindings
+
+The `bindings` field enables experimental synchronous data synchronization between a parent and child component model via lenses. See `Miso.Binding` for the `Binding` type and combinators (`-->`, `<--`, `<-->`).
+
+<Warning>
+  Data bindings are experimental as of miso 1.9. The API may change. See the [miso-reactive](https://github.com/haskell-miso/miso-reactive) example for usage.
+</Warning>
+
+## Debugging
+
+Set `logLevel` to enable runtime warnings:
+
+```haskell
+counter { logLevel = DebugAll }
+```
+
+| Level | What is logged |
+|---|---|
+| `Off` | Nothing (default) |
+| `DebugHydrate` | Mismatches between real DOM and virtual DOM during hydration |
+| `DebugEvents` | Unroutable events and unregistered event listeners |
+| `DebugAll` | Both of the above |

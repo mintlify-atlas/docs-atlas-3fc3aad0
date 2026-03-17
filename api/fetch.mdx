@@ -1,0 +1,306 @@
+---
+title: "Miso.Fetch"
+description: "HTTP requests using the browser Fetch API"
+---
+
+`Miso.Fetch` provides a typed interface to the browser's [Fetch API](https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API). Functions are organized by HTTP method and payload type. All functions return an `Effect` that dispatches an action on success or failure.
+
+## Types
+
+```haskell
+-- | Type synonym for a raw JS request body
+type Body = JSVal
+
+-- | Content-type discriminant used internally
+data CONTENT_TYPE
+  = JSON
+  | TEXT
+  | BLOB
+  | FORM_DATA
+  | ARRAY_BUFFER
+  | BYTES
+  | NONE
+
+-- | HTTP response wrapper
+data Response body = Response
+  { body         :: body
+  , status       :: Int
+  , headers      :: [(MisoString, MisoString)]
+  , errorMessage :: Maybe MisoString
+  }
+```
+
+## Header Helpers
+
+```haskell
+accept         :: MisoString  -- "Accept"
+contentType    :: MisoString  -- "Content-Type"
+applicationJSON :: MisoString  -- "application/json"
+textPlain      :: MisoString  -- "text/plain"
+formData       :: MisoString  -- "multipart/form-data"
+```
+
+Use these with `(=:)` to build header lists:
+
+```haskell
+getJSON url [ accept =: applicationJSON ] GotData ErrorOccurred
+```
+
+## JSON
+
+```haskell
+-- | GET request, expects a JSON response body
+getJSON
+  :: (FromJSON body, FromJSVal error)
+  => MisoString                      -- ^ URL
+  -> [(MisoString, MisoString)]      -- ^ Headers
+  -> (Response body  -> action)      -- ^ Success callback
+  -> (Response error -> action)      -- ^ Error callback
+  -> Effect parent model action
+
+-- | POST request with a JSON body; ignores response body
+postJSON
+  :: (FromJSVal error, ToJSON body)
+  => MisoString
+  -> body
+  -> [(MisoString, MisoString)]
+  -> (Response ()    -> action)
+  -> (Response error -> action)
+  -> Effect parent model action
+
+-- | POST request with a JSON body; expects a JSON response body
+postJSON'
+  :: (FromJSVal error, ToJSON body, FromJSON return)
+  => MisoString
+  -> body
+  -> [(MisoString, MisoString)]
+  -> (Response return -> action)
+  -> (Response error  -> action)
+  -> Effect parent model action
+
+-- | PUT request with a JSON body; ignores response body
+putJSON
+  :: (FromJSVal error, ToJSON body)
+  => MisoString
+  -> body
+  -> [(MisoString, MisoString)]
+  -> (Response ()    -> action)
+  -> (Response error -> action)
+  -> Effect parent model action
+```
+
+## Text
+
+```haskell
+-- | GET request, returns a MisoString response
+getText
+  :: FromJSVal error
+  => MisoString
+  -> [(MisoString, MisoString)]
+  -> (Response MisoString -> action)
+  -> (Response error      -> action)
+  -> Effect parent model action
+
+-- | POST request with text body
+postText
+  :: FromJSVal error
+  => MisoString
+  -> MisoString
+  -> [(MisoString, MisoString)]
+  -> (Response ()    -> action)
+  -> (Response error -> action)
+  -> Effect parent model action
+
+-- | PUT request with text body
+putText
+  :: FromJSVal error
+  => MisoString
+  -> MisoString
+  -> [(MisoString, MisoString)]
+  -> (Response ()    -> action)
+  -> (Response error -> action)
+  -> Effect parent model action
+```
+
+## Blob
+
+```haskell
+getBlob
+  :: FromJSVal error
+  => MisoString
+  -> [(MisoString, MisoString)]
+  -> (Response Blob  -> action)
+  -> (Response error -> action)
+  -> Effect parent model action
+
+postBlob
+  :: FromJSVal error
+  => MisoString -> Blob
+  -> [(MisoString, MisoString)]
+  -> (Response ()    -> action)
+  -> (Response error -> action)
+  -> Effect parent model action
+
+putBlob
+  :: FromJSVal error
+  => MisoString -> Blob
+  -> [(MisoString, MisoString)]
+  -> (Response ()    -> action)
+  -> (Response error -> action)
+  -> Effect parent model action
+```
+
+## FormData
+
+```haskell
+getFormData
+  :: FromJSVal error
+  => MisoString
+  -> [(MisoString, MisoString)]
+  -> (Response FormData -> action)
+  -> (Response error    -> action)
+  -> Effect parent model action
+
+postFormData
+  :: FromJSVal error
+  => MisoString -> FormData
+  -> [(MisoString, MisoString)]
+  -> (Response ()    -> action)
+  -> (Response error -> action)
+  -> Effect parent model action
+
+putFormData
+  :: FromJSVal error
+  => MisoString -> FormData
+  -> [(MisoString, MisoString)]
+  -> (Response ()    -> action)
+  -> (Response error -> action)
+  -> Effect parent model action
+```
+
+## Uint8Array
+
+```haskell
+getUint8Array
+  :: FromJSVal error
+  => MisoString
+  -> [(MisoString, MisoString)]
+  -> (Response Uint8Array -> action)
+  -> (Response error      -> action)
+  -> Effect parent model action
+
+postUint8Array
+  :: FromJSVal error
+  => MisoString -> Uint8Array
+  -> [(MisoString, MisoString)]
+  -> (Response ()    -> action)
+  -> (Response error -> action)
+  -> Effect parent model action
+
+putUint8Array
+  :: FromJSVal error
+  => MisoString -> Uint8Array
+  -> [(MisoString, MisoString)]
+  -> (Response ()    -> action)
+  -> (Response error -> action)
+  -> Effect parent model action
+```
+
+## ArrayBuffer
+
+```haskell
+getArrayBuffer
+  :: FromJSVal error
+  => MisoString
+  -> [(MisoString, MisoString)]
+  -> (Response ArrayBuffer -> action)
+  -> (Response error       -> action)
+  -> Effect parent model action
+
+postArrayBuffer
+  :: FromJSVal error
+  => MisoString -> ArrayBuffer
+  -> [(MisoString, MisoString)]
+  -> (Response ()    -> action)
+  -> (Response error -> action)
+  -> Effect parent model action
+
+putArrayBuffer
+  :: FromJSVal error
+  => MisoString -> ArrayBuffer
+  -> [(MisoString, MisoString)]
+  -> (Response ()    -> action)
+  -> (Response error -> action)
+  -> Effect parent model action
+```
+
+## Image
+
+```haskell
+-- | POST an Image (no response body parsing)
+postImage
+  :: FromJSVal error
+  => MisoString -> Image
+  -> [(MisoString, MisoString)]
+  -> (Response ()    -> action)
+  -> (Response error -> action)
+  -> Effect parent model action
+
+-- | PUT an Image
+putImage
+  :: FromJSVal error
+  => MisoString -> Image
+  -> [(MisoString, MisoString)]
+  -> (Response ()    -> action)
+  -> (Response error -> action)
+  -> Effect parent model action
+```
+
+## Usage Example
+
+```haskell
+module Main where
+
+import Miso
+import Miso.Fetch
+import Miso.String (MisoString)
+
+data GitHubUser = GitHubUser { login :: MisoString }
+  deriving (Show, Eq)
+
+instance FromJSON GitHubUser where
+  parseJSON = withObject "GitHubUser" $ \o ->
+    GitHubUser <$> o .: "login"
+
+data Action
+  = FetchUser
+  | GotUser (Response GitHubUser)
+  | FetchError (Response MisoString)
+
+updateModel :: Action -> Effect Model Action
+updateModel = \case
+  FetchUser ->
+    getJSON
+      "https://api.github.com/users/dmjio"
+      []                -- no extra headers
+      GotUser
+      FetchError
+  GotUser resp ->
+    -- access resp.body :: GitHubUser
+    io_ $ consoleLog (ms (login (body resp)))
+  FetchError resp ->
+    io_ $ consoleError (body resp)
+```
+
+## Error Handling
+
+<Note>
+  Both the success and error callbacks receive a `Response`. The `errorMessage` field is `Just msg` when JSON decoding fails. The HTTP `status` code is always available on both paths.
+</Note>
+
+```haskell
+handleResponse :: Response GitHubUser -> Action
+handleResponse resp
+  | status resp >= 200 && status resp < 300 = GotUser resp
+  | otherwise = ShowError (ms (status resp))
+```

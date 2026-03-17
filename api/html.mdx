@@ -1,0 +1,137 @@
+---
+title: "Miso.Html"
+description: "The HTML DSL for constructing virtual DOM in miso"
+---
+
+`Miso.Html` is the top-level module for building user interfaces in miso. It re-exports everything from `Miso.Html.Element`, `Miso.Html.Event`, and `Miso.Html.Render`, giving you a single import for all HTML construction needs.
+
+```haskell
+import Miso.Html
+```
+
+## How the DSL works
+
+Miso's HTML DSL mirrors the structure of HTML itself. Every element constructor takes a list of attributes and a list of child views, returning a `View model action`:
+
+```haskell
+div_ :: [Attribute action] -> [View model action] -> View model action
+```
+
+Attributes are either DOM properties set with functions like `id_` and `class_`, or event handlers like `onClick`. Children are other `View` values, composed recursively.
+
+The three building blocks are:
+
+- **Elements** (`Miso.Html.Element`) — HTML element constructors such as `div_`, `p_`, `button_`
+- **Properties** (`Miso.Html.Property`) — DOM property and attribute setters such as `id_`, `class_`, `href_`
+- **Events** (`Miso.Html.Event`) — Event handler constructors such as `onClick`, `onInput`, `onKeyDown`
+
+## Core types
+
+```haskell
+-- | The virtual DOM type. Parameterized by the model and action types.
+data View model action
+  = VNode Namespace Tag [Attribute action] [View model action]
+  | VText (Maybe Key) MisoString
+  | VComp [Attribute action] (SomeComponent model)
+
+-- | An attribute on a virtual DOM node: a property, class list, style map, or event handler.
+data Attribute action
+  = Property MisoString Value
+  | ClassList [MisoString]
+  | On (Sink action -> VTree -> LogLevel -> Events -> IO ())
+  | Styles (Map MisoString MisoString)
+
+-- | DOM element namespace.
+data Namespace
+  = HTML
+  | SVG
+  | MATHML
+```
+
+## Basic example
+
+A complete counter component view:
+
+```haskell
+import Miso
+import Miso.String
+
+data Action = Add | Subtract
+
+view_ :: Int -> View Int Action
+view_ n = div_
+  [ class_ "counter" ]
+  [ button_ [ onClick Subtract ] [ text_ ["-"] ]
+  , span_ [] [ text (ms n) ]
+  , button_ [ onClick Add ] [ text_ ["+"] ]
+  ]
+```
+
+## Text nodes
+
+Use `text` to create a text node from a `MisoString`, or use the `IsString` instance directly:
+
+```haskell
+text :: MisoString -> View model action
+
+-- IsString instance — string literals work directly
+p_ [] [ "Hello, world!" ]
+
+-- Explicit text node
+p_ [] [ text (ms someInt) ]
+```
+
+<Note>
+`text` HTML-encodes its content when used with server-side rendering. Use `textRaw` if you need to bypass encoding.
+</Note>
+
+## Namespace support
+
+Miso supports three XML namespaces. Use `nodeHtml` for HTML, or the equivalent helpers from `Miso.Svg.Element` and `Miso.MathML.Element` for SVG and MathML:
+
+```haskell
+-- HTML namespace (default for all elements in Miso.Html.Element)
+nodeHtml :: MisoString -> [Attribute action] -> [View model action] -> View model action
+nodeHtml nodeName = node HTML nodeName
+
+-- Low-level constructor for any namespace
+node :: Namespace -> MisoString -> [Attribute action] -> [View model action] -> View model action
+```
+
+SVG is available via `Miso.Svg` and MathML via `Miso.MathML`.
+
+## Importing
+
+```haskell
+-- Unqualified — recommended for application code
+import Miso.Html
+
+-- Or via the top-level Miso re-export
+import Miso
+
+-- Qualified — useful to avoid name clashes
+import qualified Miso.Html as H
+```
+
+## Server-side rendering
+
+`Miso.Html.Render` (re-exported from `Miso.Html`) provides the `ToHtml` typeclass for serializing a `View` to a `ByteString`:
+
+```haskell
+class ToHtml a where
+  toHtml :: a -> L.ByteString
+
+-- Instances provided for:
+instance ToHtml (View m a)
+instance ToHtml [View m a]
+```
+
+See [Miso.Html.Render](/api/html#server-side-rendering) for full details on how attributes and self-closing tags are handled.
+
+## Re-exported modules
+
+| Module | Contents |
+|---|---|
+| `Miso.Html.Element` | All HTML element constructors |
+| `Miso.Html.Event` | All event handler constructors |
+| `Miso.Html.Render` | `ToHtml` typeclass for SSR |
